@@ -1,0 +1,11 @@
+from enum import StrEnum
+
+
+class ExecutionStatus(StrEnum):
+    WAITING = 'WAITING'
+    RUNNING = 'RUNNING'
+    FINISHED = 'FINISHED'
+    ERROR = 'ERROR'
+    SCHEDULED = 'SCHEDULED'
+    INTERRUPTED = 'INTERRUPTED'
+    OUT_OF_OPERATING_HOURS = 'OUT_OF_OPERATING_HOURS'
