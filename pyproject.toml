@@ -1,6 +1,6 @@
 [project]
 name = "zsynctech-studio-sdk"
-version = "0.1.1"
+version = "1.0.0"
 description = "SDK Para interação de automações com a plataforma de monitoramento."
 readme = "README.md"
 authors = [
