@@ -54,7 +54,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "Publishing to TestPyPI..."
-            uv publish --username __token__ --password $UV_TEST_PYPI_TOKEN --index-url https://test.pypi.org/legacy/
+            uv publish --username __token__ --password $UV_PYPI_TOKEN
           else
             echo "Publishing to PyPI..."
             uv publish --username __token__ --password $UV_PYPI_TOKEN
