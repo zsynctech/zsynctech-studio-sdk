@@ -193,6 +193,7 @@ class RobotRunner:
         observation: str | None = None
         override_status: ExecutionStatus | None = None
         user_execution_observation: str | None = None
+        cancelled_externally = False
 
         try:
             logger.info("Running execution [dim]%s[/dim].", execution_id)
@@ -202,8 +203,7 @@ class RobotRunner:
                 "Execution [dim]%s[/dim] was cancelled externally — stopping handler.",
                 execution_id,
             )
-            _reset_context(token)
-            return
+            cancelled_externally = True
         except Exception as exc:
             if self._status_mapper:
                 for exc_type, mapped_status in self._status_mapper.items():
@@ -233,6 +233,9 @@ class RobotRunner:
         finally:
             user_execution_observation = ctx.execution_observation
             _reset_context(token)
+
+        if cancelled_externally:
+            return
 
         if user_execution_observation is not None:
             observation = user_execution_observation
