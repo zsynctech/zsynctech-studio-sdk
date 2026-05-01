@@ -1,0 +1,56 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  release:
+    name: Tag & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create tags and releases
+      id-token: write       # trusted publishing to PyPI
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history needed to check existing tags
+
+      - name: Read version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: tag_check
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build package
+        if: steps.tag_check.outputs.exists == 'false'
+        run: uv build
+
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: dist/*
+
+      - name: Publish to PyPI
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
