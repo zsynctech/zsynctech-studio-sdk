@@ -43,6 +43,7 @@ from rich.markup import escape as markup_escape
 
 from .config import SDKConfig
 from .context import get_current_context
+from .exceptions import ApiError, ExecutionCancelledError
 from .models.enums import ExecutionStatus, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,17 @@ class TaskWrapper(Generic[P, R]):
         # Register the task
         try:
             task = ctx.task_service.register(ctx.execution_id, self._name, order)
+        except ApiError as exc:
+            if exc.status_code == 409:
+                raise ExecutionCancelledError(
+                    f"Execution {ctx.execution_id} was cancelled externally."
+                ) from exc
+            logger.error(
+                "Could not register task '%s': %s - running without tracking.",
+                self._name,
+                exc,
+            )
+            return self._func(*args, **kwargs)
         except Exception as exc:
             logger.error(
                 "Could not register task '%s': %s - running without tracking.",

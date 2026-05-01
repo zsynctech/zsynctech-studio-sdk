@@ -23,7 +23,7 @@ import httpx
 
 from .config import SDKConfig
 from .context import ExecutionContext, _reset_context, _set_context
-from .exceptions import ApiError, AuthenticationError, NotFoundError
+from .exceptions import ApiError, AuthenticationError, ExecutionCancelledError, NotFoundError
 from .http.client import HttpClient
 from .models.enums import ExecutionStatus
 from .services.execution_service import ExecutionService
@@ -197,6 +197,13 @@ class RobotRunner:
         try:
             logger.info("Running execution [dim]%s[/dim].", execution_id)
             self._handler()
+        except ExecutionCancelledError:
+            logger.warning(
+                "Execution [dim]%s[/dim] was cancelled externally — stopping handler.",
+                execution_id,
+            )
+            _reset_context(token)
+            return
         except Exception as exc:
             if self._status_mapper:
                 for exc_type, mapped_status in self._status_mapper.items():

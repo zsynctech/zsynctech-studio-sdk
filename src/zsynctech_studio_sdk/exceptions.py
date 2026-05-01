@@ -4,12 +4,13 @@ Custom exceptions for the ZSyncTech Studio SDK.
 Exception hierarchy::
 
     SDKError
-    ├-- ConfigurationError   - invalid or missing configuration
-    ├-- AuthenticationError  - API token rejected by the platform
-    ├-- NotFoundError        - requested resource does not exist
-    ├-- ApiError             - generic HTTP 4xx/5xx from the platform
-    ├-- TaskError            - task register/update operation failed
-    └-- ExecutionError       - execution lifecycle operation failed
+    ├-- ConfigurationError      - invalid or missing configuration
+    ├-- AuthenticationError     - API token rejected by the platform
+    ├-- NotFoundError           - requested resource does not exist
+    ├-- ApiError                - generic HTTP 4xx/5xx from the platform
+    ├-- TaskError               - task register/update operation failed
+    ├-- ExecutionError          - execution lifecycle operation failed
+    └-- ExecutionCancelledError - execution was cancelled externally during run
 """
 
 from __future__ import annotations
@@ -62,3 +63,16 @@ class TaskError(SDKError):
 
 class ExecutionError(SDKError):
     """Raised when an execution lifecycle operation fails at the SDK level."""
+
+
+class ExecutionCancelledError(SDKError):
+    """Raised when the platform reports the execution was cancelled externally.
+
+    This is triggered when a task registration or update returns HTTP 409
+    indicating the execution is no longer in RUNNING state (e.g. it was
+    cancelled via the platform UI or the stale-execution cron job).
+
+    The :class:`~zsynctech_studio_sdk.runner.RobotRunner` catches this
+    exception, stops the handler immediately, and skips the ``finish`` call
+    since the platform has already closed the execution.
+    """

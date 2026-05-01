@@ -46,6 +46,7 @@ from .exceptions import (
     ApiError,
     AuthenticationError,
     ConfigurationError,
+    ExecutionCancelledError,
     ExecutionError,
     NotFoundError,
     SDKError,
@@ -86,6 +87,7 @@ __all__ = [
     "AuthenticationError",
     "NotFoundError",
     "ApiError",
+    "ExecutionCancelledError",
     "ExecutionError",
     "TaskError",
 ]
