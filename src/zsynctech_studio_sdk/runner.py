@@ -192,6 +192,7 @@ class RobotRunner:
 
         observation: str | None = None
         override_status: ExecutionStatus | None = None
+        user_execution_observation: str | None = None
 
         try:
             logger.info("Running execution [dim]%s[/dim].", execution_id)
@@ -223,7 +224,11 @@ class RobotRunner:
                 logger.error("Execution %s failed: %s", execution_id, exc)
                 observation = str(exc)
         finally:
+            user_execution_observation = ctx.execution_observation
             _reset_context(token)
+
+        if user_execution_observation is not None:
+            observation = user_execution_observation
 
         try:
             finished = self._execution_service.finish(execution_id, observation, override_status)

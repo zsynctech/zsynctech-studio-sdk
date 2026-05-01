@@ -37,6 +37,8 @@ class ExecutionContext:
     execution_service: ExecutionService
     task_service: TaskService
     _task_counter: int = field(default=0, init=False, repr=False)
+    task_observation: str | None = field(default=None, init=False, repr=False)
+    execution_observation: str | None = field(default=None, init=False, repr=False)
 
     def next_task_order(self) -> int:
         """Return the current task index and advance the internal counter.

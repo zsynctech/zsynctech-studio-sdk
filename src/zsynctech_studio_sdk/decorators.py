@@ -275,6 +275,9 @@ class TaskWrapper(Generic[P, R]):
         except Exception as exc:
             logger.warning("Could not mark task '%s' as RUNNING: %s", self._name, exc)
 
+        # Reset per-task observation slot so previous tasks don't bleed over
+        ctx.task_observation = None
+
         # Execute
         try:
             result: R = self._func(*args, **kwargs)
@@ -290,7 +293,7 @@ class TaskWrapper(Generic[P, R]):
                     ctx.execution_id,
                     task.id,
                     status=task_status,
-                    observation=str(exc),
+                    observation=ctx.task_observation or str(exc),
                 )
             except Exception:
                 pass
@@ -300,7 +303,7 @@ class TaskWrapper(Generic[P, R]):
 
         # Mark as SUCCESS
         try:
-            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.SUCCESS)
+            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.SUCCESS, observation=ctx.task_observation)
         except Exception as exc:
             logger.warning("Could not mark task '%s' as SUCCESS: %s", self._name, exc)
 
