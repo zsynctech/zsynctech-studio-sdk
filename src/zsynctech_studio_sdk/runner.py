@@ -15,6 +15,8 @@ The :class:`RobotRunner` is the heart of the SDK.  It:
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 import time
 from collections.abc import Callable
@@ -197,7 +199,10 @@ class RobotRunner:
 
         try:
             logger.info("Running execution [dim]%s[/dim].", execution_id)
-            self._handler()
+            if inspect.iscoroutinefunction(self._handler):
+                asyncio.run(self._handler())
+            else:
+                self._handler()
         except ExecutionCancelledError:
             logger.warning(
                 "Execution [dim]%s[/dim] was cancelled externally — stopping handler.",

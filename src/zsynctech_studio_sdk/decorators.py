@@ -34,6 +34,7 @@ Adds a :meth:`ExecutionWrapper.listener` method that:
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Generic, ParamSpec, TypeVar, overload
@@ -201,6 +202,11 @@ class TaskWrapper(Generic[P, R]):
         """
         ctx = get_current_context()
 
+        if inspect.iscoroutinefunction(self._func):
+            if ctx is None:
+                return self._run_offline_async(*args, **kwargs)  # type: ignore[return-value]
+            return self._run_tracked_async(ctx, *args, **kwargs)  # type: ignore[return-value]
+
         if ctx is None:
             return self._run_offline(*args, **kwargs)
 
@@ -293,6 +299,97 @@ class TaskWrapper(Generic[P, R]):
         # Execute
         try:
             result: R = self._func(*args, **kwargs)
+        except Exception as exc:
+            mapped = _resolve_mapped_status(exc, self._status_mapper) if self._status_mapper else None
+            task_status = mapped if mapped is not None else TaskStatus.ERROR
+            if task_status == TaskStatus.ERROR:
+                logger.error("  [%d] [bold red]✘[/bold red]  %s — %s", order + 1, markup_escape(self._name), markup_escape(str(exc)))
+            else:
+                logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
+            try:
+                ctx.task_service.update(
+                    ctx.execution_id,
+                    task.id,
+                    status=task_status,
+                    observation=ctx.task_observation or str(exc),
+                )
+            except Exception:
+                pass
+            if task_status == TaskStatus.ERROR:
+                raise
+            return None  # type: ignore[return-value]
+
+        # Mark as SUCCESS
+        try:
+            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.SUCCESS, observation=ctx.task_observation)
+        except Exception as exc:
+            logger.warning("Could not mark task '%s' as SUCCESS: %s", self._name, exc)
+
+        logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
+        return result
+
+    async def _run_offline_async(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Async variant of _run_offline for async-decorated functions."""
+        order = self._offline_counter
+        self._offline_counter += 1
+        logger.info("  [%d] [cyan]▶[/cyan]  %s", order + 1, markup_escape(self._name))
+        try:
+            result: R = await self._func(*args, **kwargs)  # type: ignore[misc]
+        except Exception as exc:
+            mapped = _resolve_mapped_status(exc, self._status_mapper) if self._status_mapper else None
+            task_status = mapped if mapped is not None else TaskStatus.ERROR
+            if task_status == TaskStatus.ERROR:
+                logger.error("  [%d] [bold red]✘[/bold red]  %s — %s", order + 1, markup_escape(self._name), markup_escape(str(exc)))
+                raise
+            logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
+            return None  # type: ignore[return-value]
+        logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
+        return result
+
+    async def _run_tracked_async(self, ctx: object, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Async variant of _run_tracked for async-decorated functions."""
+        from .context import ExecutionContext
+
+        assert isinstance(ctx, ExecutionContext)
+
+        order = ctx.next_task_order()
+
+        # Register the task
+        try:
+            task = ctx.task_service.register(ctx.execution_id, self._name, order)
+        except ApiError as exc:
+            if exc.status_code == 409:
+                raise ExecutionCancelledError(
+                    f"Execution {ctx.execution_id} was cancelled externally."
+                ) from exc
+            logger.error(
+                "Could not register task '%s': %s - running without tracking.",
+                self._name,
+                exc,
+            )
+            return await self._func(*args, **kwargs)  # type: ignore[misc]
+        except Exception as exc:
+            logger.error(
+                "Could not register task '%s': %s - running without tracking.",
+                self._name,
+                exc,
+            )
+            return await self._func(*args, **kwargs)  # type: ignore[misc]
+
+        logger.info("  [%d] [cyan]▶[/cyan]  %s", order + 1, markup_escape(self._name))
+
+        # Mark as RUNNING
+        try:
+            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.RUNNING)
+        except Exception as exc:
+            logger.warning("Could not mark task '%s' as RUNNING: %s", self._name, exc)
+
+        # Reset per-task observation slot so previous tasks don't bleed over
+        ctx.task_observation = None
+
+        # Execute
+        try:
+            result: R = await self._func(*args, **kwargs)  # type: ignore[misc]
         except Exception as exc:
             mapped = _resolve_mapped_status(exc, self._status_mapper) if self._status_mapper else None
             task_status = mapped if mapped is not None else TaskStatus.ERROR
