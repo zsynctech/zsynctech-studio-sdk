@@ -31,11 +31,15 @@ class ExecutionContext:
         execution_id:       UUID of the active execution.
         execution_service:  Service for execution lifecycle operations.
         task_service:       Service for task register/update operations.
+        instance_code:      Short code of the automation instance, or ``None`` if unavailable.
+        automation_name:    Display name of the automation, or ``None`` if unavailable.
     """
 
     execution_id: str
     execution_service: ExecutionService
     task_service: TaskService
+    instance_code: str | None = field(default=None)
+    automation_name: str | None = field(default=None)
     _task_counter: int = field(default=0, init=False, repr=False)
     task_observation: str | None = field(default=None, init=False, repr=False)
     execution_observation: str | None = field(default=None, init=False, repr=False)

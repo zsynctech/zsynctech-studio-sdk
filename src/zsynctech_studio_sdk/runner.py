@@ -163,20 +163,25 @@ class RobotRunner:
                 continue
 
             if pending is not None:
-                self._process(pending.id)
+                self._process(pending)
             else:
                 logger.debug("No pending executions. Waiting %.1f s.", self._config.poll_interval)
                 time.sleep(self._config.poll_interval)
 
-    def _process(self, execution_id: str) -> None:
+    def _process(self, pending: object) -> None:
         """Claim and execute a single pending execution.
 
         Creates the :class:`ExecutionContext`, invokes the handler, and
         finishes the execution regardless of whether the handler succeeded.
 
         Args:
-            execution_id: UUID of the execution to process.
+            pending: The pending :class:`~zsynctech_studio_sdk.models.Execution`.
         """
+        from .models.execution import Execution as ExecutionModel  # avoid circular import
+
+        assert isinstance(pending, ExecutionModel)
+        execution_id = pending.id
+
         logger.info("Claiming execution [dim]%s[/dim].", execution_id)
 
         try:
@@ -189,6 +194,8 @@ class RobotRunner:
             execution_id=execution_id,
             execution_service=self._execution_service,
             task_service=self._task_service,
+            instance_code=pending.instance.instance_code if pending.instance else None,
+            automation_name=pending.instance.automation.name if (pending.instance and pending.instance.automation) else None,
         )
         token = _set_context(ctx)
 

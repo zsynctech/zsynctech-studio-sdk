@@ -21,6 +21,32 @@ class _PlatformModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class AutomationSummary(_PlatformModel):
+    """Embedded automation data returned alongside an execution.
+
+    Attributes:
+        id:   Unique identifier of the automation.
+        name: Display name of the automation.
+    """
+
+    id: str
+    name: str
+
+
+class InstanceSummary(_PlatformModel):
+    """Embedded instance data returned alongside an execution.
+
+    Attributes:
+        id:            Unique identifier of the instance.
+        instance_code: Short code that identifies the instance.
+        automation:    Nested automation summary.
+    """
+
+    id: str
+    instance_code: str = Field(alias="instanceCode")
+    automation: AutomationSummary | None = None
+
+
 class Execution(_PlatformModel):
     """Represents an execution returned by the platform API.
 
@@ -36,6 +62,8 @@ class Execution(_PlatformModel):
         observation:           Optional free-text note attached to the execution.
         created_at:            Record creation timestamp.
         updated_at:            Last update timestamp.
+        instance:              Nested instance info (instanceCode + automation name).
+                               Present on ``GET /executions/pending/{instanceId}`` responses.
     """
 
     id: str
@@ -49,6 +77,7 @@ class Execution(_PlatformModel):
     observation: str | None = None
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
+    instance: InstanceSummary | None = None
 
 
 class PagedResponse(_PlatformModel, Generic[T]):

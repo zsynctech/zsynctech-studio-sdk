@@ -53,7 +53,7 @@ from .exceptions import (
     TaskError,
 )
 from .http import HttpClient
-from .models import ExecutionStatus, TaskStatus
+from .models import AutomationSummary, ExecutionStatus, InstanceSummary, TaskStatus
 from .runner import RobotRunner
 from .services import ExecutionService, TaskService
 
@@ -81,6 +81,8 @@ __all__ = [
     # Models / Enums
     "TaskStatus",
     "ExecutionStatus",
+    "AutomationSummary",
+    "InstanceSummary",
     # Exceptions
     "SDKError",
     "ConfigurationError",
