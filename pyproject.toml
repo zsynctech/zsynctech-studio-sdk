@@ -1,6 +1,6 @@
 [project]
 name = "zsynctech-studio-sdk"
-version = "1.3.6"
+version = "1.3.7"
 description = "Python SDK for building robots that integrate with the ZSyncTech Studio platform"
 readme = "README.md"
 authors = [
