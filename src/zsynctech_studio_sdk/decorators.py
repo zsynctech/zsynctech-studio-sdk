@@ -455,6 +455,12 @@ class ExecutionWrapper(Generic[P, R]):
         self._status_mapper = status_mapper
         functools.update_wrapper(self, func)
 
+    def __get__(self, obj: object, objtype: object = None) -> "ExecutionWrapper[P, R]":
+        """Support use as a descriptor so @execution works on instance methods."""
+        if obj is None:
+            return self
+        return functools.partial(self, obj)  # type: ignore[return-value]
+
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Invoke the execution function in offline mode (no platform connection).
 
