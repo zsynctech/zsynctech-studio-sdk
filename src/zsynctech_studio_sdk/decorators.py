@@ -186,6 +186,12 @@ class TaskWrapper(Generic[P, R]):
         """Human-readable task name used when registering with the platform."""
         return self._name
 
+    def __get__(self, obj: object, objtype: object = None) -> "TaskWrapper[P, R]":
+        """Support use as a descriptor so @task works on instance methods."""
+        if obj is None:
+            return self
+        return functools.partial(self, obj)  # type: ignore[return-value]
+
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Invoke the wrapped function, tracking it on the platform if inside an execution.
 
