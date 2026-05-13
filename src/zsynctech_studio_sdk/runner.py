@@ -234,7 +234,7 @@ class RobotRunner:
                                 type(exc).__name__,
                                 mapped_status.value,
                             )
-                            observation = str(exc)
+                        observation = str(exc)
                         break
                 else:
                     logger.error("Execution %s failed: %s", execution_id, exc)

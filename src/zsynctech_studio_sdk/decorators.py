@@ -186,12 +186,6 @@ class TaskWrapper(Generic[P, R]):
         """Human-readable task name used when registering with the platform."""
         return self._name
 
-    def __get__(self, obj: object, objtype: object = None) -> "TaskWrapper[P, R]":
-        """Support use as a descriptor so @task works on instance methods."""
-        if obj is None:
-            return self
-        return functools.partial(self, obj)  # type: ignore[return-value]
-
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Invoke the wrapped function, tracking it on the platform if inside an execution.
 
@@ -455,12 +449,6 @@ class ExecutionWrapper(Generic[P, R]):
         self._status_mapper = status_mapper
         functools.update_wrapper(self, func)
 
-    def __get__(self, obj: object, objtype: object = None) -> "ExecutionWrapper[P, R]":
-        """Support use as a descriptor so @execution works on instance methods."""
-        if obj is None:
-            return self
-        return functools.partial(self, obj)  # type: ignore[return-value]
-
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Invoke the execution function in offline mode (no platform connection).
 
@@ -515,8 +503,38 @@ class ExecutionWrapper(Generic[P, R]):
 # -- Decorator factories -------------------------------------------------------
 
 
+def _build_task_function(
+    func: Callable[P, R],
+    task_name: str,
+    status_mapper: TaskStatusMapper | None,
+) -> Callable[P, R]:
+    """Return a plain callable that delegates to a TaskWrapper.
+
+    Unlike returning the :class:`TaskWrapper` directly, this function returns
+    a regular Python function.  Regular functions implement the descriptor
+    protocol natively, so IDEs and type checkers display the result as a
+    method/function rather than a property when used inside a class body.
+    """
+    wrapper_obj = TaskWrapper(func, task_name, status_mapper)
+
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return await wrapper_obj(*args, **kwargs)  # type: ignore[misc]
+
+        async_wrapper.task_name = task_name  # type: ignore[attr-defined]
+        return async_wrapper  # type: ignore[return-value]
+
+    @functools.wraps(func)
+    def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return wrapper_obj(*args, **kwargs)
+
+    sync_wrapper.task_name = task_name  # type: ignore[attr-defined]
+    return sync_wrapper  # type: ignore[return-value]
+
+
 @overload
-def task(func: Callable[P, R]) -> TaskWrapper[P, R]: ...
+def task(func: Callable[P, R]) -> Callable[P, R]: ...
 
 
 @overload
@@ -524,7 +542,7 @@ def task(
     *,
     name: str | None = None,
     status_mapper: TaskStatusMapper | None = None,
-) -> Callable[[Callable[P, R]], TaskWrapper[P, R]]: ...
+) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
 def task(
@@ -532,7 +550,7 @@ def task(
     *,
     name: str | None = None,
     status_mapper: TaskStatusMapper | None = None,
-) -> TaskWrapper[P, R] | Callable[[Callable[P, R]], TaskWrapper[P, R]]:
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator that registers and tracks a function as a platform task.
 
     Can be used with or without arguments::
@@ -561,15 +579,16 @@ def task(
                        and the execution continues normally.
 
     Returns:
-        A :class:`TaskWrapper` instance wrapping *func*.
+        A callable with the same signature as *func* that tracks execution on
+        the platform.
     """
     if func is not None:
         # @task without arguments
-        return TaskWrapper(func, name or _name_from_function(func.__name__))
+        return _build_task_function(func, name or _name_from_function(func.__name__), status_mapper)
 
     # @task(name=..., status_mapper=...) - return a decorator
-    def decorator(fn: Callable[P, R]) -> TaskWrapper[P, R]:
-        return TaskWrapper(fn, name or _name_from_function(fn.__name__), status_mapper=status_mapper)
+    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        return _build_task_function(fn, name or _name_from_function(fn.__name__), status_mapper)
 
     return decorator
 
