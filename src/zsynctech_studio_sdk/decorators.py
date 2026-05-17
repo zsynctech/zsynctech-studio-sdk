@@ -234,9 +234,9 @@ class TaskWrapper(Generic[P, R]):
             task_status = mapped if mapped is not None else TaskStatus.ERROR
             if task_status == TaskStatus.ERROR:
                 logger.error("  [%d] [bold red]✘[/bold red]  %s — %s", order + 1, markup_escape(self._name), markup_escape(str(exc)))
-                raise
-            logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
-            return None  # type: ignore[return-value]
+            else:
+                logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
+            raise
         logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
         return result
 
@@ -315,9 +315,7 @@ class TaskWrapper(Generic[P, R]):
                 )
             except Exception:
                 pass
-            if task_status == TaskStatus.ERROR:
-                raise
-            return None  # type: ignore[return-value]
+            raise
 
         # Mark as SUCCESS
         try:
@@ -340,9 +338,9 @@ class TaskWrapper(Generic[P, R]):
             task_status = mapped if mapped is not None else TaskStatus.ERROR
             if task_status == TaskStatus.ERROR:
                 logger.error("  [%d] [bold red]✘[/bold red]  %s — %s", order + 1, markup_escape(self._name), markup_escape(str(exc)))
-                raise
-            logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
-            return None  # type: ignore[return-value]
+            else:
+                logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
+            raise
         logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
         return result
 
@@ -406,9 +404,7 @@ class TaskWrapper(Generic[P, R]):
                 )
             except Exception:
                 pass
-            if task_status == TaskStatus.ERROR:
-                raise
-            return None  # type: ignore[return-value]
+            raise
 
         # Mark as SUCCESS
         try:
@@ -574,9 +570,10 @@ def task(
         status_mapper: Optional mapping of exception types to :class:`TaskStatus`
                        values. When an exception occurs whose type matches a key
                        (checked via ``isinstance``), the task is finished with
-                       the mapped status instead of the default ``ERROR``. For
-                       any status other than ``ERROR`` the exception is swallowed
-                       and the execution continues normally.
+                       the mapped status instead of the default ``ERROR``. The
+                       exception is always re-raised regardless of the mapped
+                       status — use the ``@execution`` ``status_mapper`` to
+                       control whether the overall execution continues.
 
     Returns:
         A callable with the same signature as *func* that tracks execution on
