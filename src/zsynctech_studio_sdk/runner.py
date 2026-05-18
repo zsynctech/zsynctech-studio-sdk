@@ -203,6 +203,7 @@ class RobotRunner:
         override_status: ExecutionStatus | None = None
         user_execution_observation: str | None = None
         cancelled_externally = False
+        handler_raised = False
 
         try:
             logger.info("Running execution [dim]%s[/dim].", execution_id)
@@ -217,6 +218,7 @@ class RobotRunner:
             )
             cancelled_externally = True
         except Exception as exc:
+            handler_raised = True
             if self._status_mapper:
                 for exc_type, mapped_status in self._status_mapper.items():
                     if isinstance(exc, exc_type):
@@ -251,6 +253,9 @@ class RobotRunner:
 
         if user_execution_observation is not None:
             observation = user_execution_observation
+
+        if override_status is None and not handler_raised:
+            override_status = ExecutionStatus.COMPLETED
 
         try:
             finished = self._execution_service.finish(execution_id, observation, override_status)
