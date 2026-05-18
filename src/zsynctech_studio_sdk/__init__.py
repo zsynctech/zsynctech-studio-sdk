@@ -40,7 +40,7 @@ Advanced usage::
 """
 
 from .config import SDKConfig
-from .context import ExecutionContext, get_current_context
+from .context import ExecutionContext, OfflineExecutionContext, get_current_context
 from .decorators import ExecutionWrapper, ExecutionStatusMapper, TaskWrapper, TaskStatusMapper, execution, task
 from .exceptions import (
     ApiError,
@@ -77,6 +77,7 @@ __all__ = [
     "SDKConfig",
     # Context
     "ExecutionContext",
+    "OfflineExecutionContext",
     "get_current_context",
     # Models / Enums
     "TaskStatus",

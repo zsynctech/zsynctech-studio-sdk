@@ -24,7 +24,7 @@ from collections.abc import Callable
 import httpx
 
 from .config import SDKConfig
-from .context import ExecutionContext, _reset_context, _set_context
+from .context import ExecutionContext, OfflineExecutionContext, _reset_context, _set_context
 from .exceptions import ApiError, AuthenticationError, ExecutionCancelledError, NotFoundError
 from .http.client import HttpClient
 from .models.enums import ExecutionStatus
@@ -89,6 +89,10 @@ class RobotRunner:
             KeyboardInterrupt: Propagated from Ctrl+C; the HTTP client is
                                closed before the exception propagates.
         """
+        if self._config.offline:
+            self._run_offline()
+            return
+
         logger.info(
             "[bold green]Robot started.[/bold green] Polling every [cyan]%.1f s[/cyan] — instance [dim]%s[/dim]",
             self._config.poll_interval,
@@ -101,6 +105,25 @@ class RobotRunner:
             logger.info("[bold]Robot stopped.[/bold]")
 
     # -- Internal helpers ------------------------------------------------------
+
+    def _run_offline(self) -> None:
+        """Execute the handler once locally without connecting to the platform."""
+        logger.warning(
+            "Offline mode - execution is running locally and will not update the platform."
+        )
+        ctx = OfflineExecutionContext()
+        token = _set_context(ctx)
+        try:
+            if inspect.iscoroutinefunction(self._handler):
+                asyncio.run(self._handler())
+            else:
+                self._handler()
+        except Exception as exc:
+            logger.error("Offline execution failed: %s", exc)
+        finally:
+            _reset_context(token)
+            if ctx.execution_observation:
+                logger.info("Observation: %s", ctx.execution_observation)
 
     def _loop(self) -> None:
         """Main polling loop. Blocks until interrupted.

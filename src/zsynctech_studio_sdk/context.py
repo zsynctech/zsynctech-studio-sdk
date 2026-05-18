@@ -55,24 +55,56 @@ class ExecutionContext:
         return order
 
 
+@dataclass
+class OfflineExecutionContext:
+    """Lightweight execution context used in offline (no-platform) runs.
+
+    Activated by :class:`~zsynctech_studio_sdk.decorators.ExecutionWrapper`
+    when the execution function is called directly (not via ``listener``).
+    Exposes the same user-facing attributes as :class:`ExecutionContext` so
+    that robot code can unconditionally read and write ``execution_observation``
+    and ``task_observation`` without guarding against ``None``.
+
+    Attributes:
+        instance_code:   Always ``None`` in offline mode.
+        automation_name: Always ``None`` in offline mode.
+    """
+
+    execution_id: str = field(default="offline")
+    instance_code: str | None = field(default=None)
+    automation_name: str | None = field(default=None)
+    _task_counter: int = field(default=0, init=False, repr=False)
+    task_observation: str | None = field(default=None, init=False, repr=False)
+    execution_observation: str | None = field(default=None, init=False, repr=False)
+
+    def next_task_order(self) -> int:
+        """Return the current task index and advance the internal counter."""
+        order = self._task_counter
+        self._task_counter += 1
+        return order
+
+
 # -- ContextVar ----------------------------------------------------------------
 
-_execution_context_var: ContextVar[ExecutionContext | None] = ContextVar(
+_AnyContext = ExecutionContext | OfflineExecutionContext | None
+
+_execution_context_var: ContextVar[_AnyContext] = ContextVar(
     "zsynctech_execution_context", default=None
 )
 
 
-def get_current_context() -> ExecutionContext | None:
-    """Return the active :class:`ExecutionContext`, or ``None`` outside an execution.
+def get_current_context() -> ExecutionContext | OfflineExecutionContext | None:
+    """Return the active execution context, or ``None`` outside an execution.
 
     Returns:
-        The current execution context if a robot run is in progress,
-        otherwise ``None``.
+        :class:`ExecutionContext` during a live platform run,
+        :class:`OfflineExecutionContext` during an offline run, or
+        ``None`` when called outside any execution.
     """
     return _execution_context_var.get()
 
 
-def _set_context(ctx: ExecutionContext | None) -> Token[ExecutionContext | None]:
+def _set_context(ctx: _AnyContext) -> Token[_AnyContext]:
     """Internal - set the current context and return a reset token.
 
     Args:
@@ -84,7 +116,7 @@ def _set_context(ctx: ExecutionContext | None) -> Token[ExecutionContext | None]
     return _execution_context_var.set(ctx)
 
 
-def _reset_context(token: Token[ExecutionContext | None]) -> None:
+def _reset_context(token: Token[_AnyContext]) -> None:
     """Internal - restore the context to the state before the matching set call.
 
     Args:

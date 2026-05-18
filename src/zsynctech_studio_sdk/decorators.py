@@ -43,7 +43,7 @@ from rich.logging import RichHandler
 from rich.markup import escape as markup_escape
 
 from .config import SDKConfig
-from .context import get_current_context
+from .context import OfflineExecutionContext, _reset_context, _set_context, get_current_context
 from .exceptions import ApiError, ExecutionCancelledError
 from .models.enums import ExecutionStatus, TaskStatus
 
@@ -203,11 +203,11 @@ class TaskWrapper(Generic[P, R]):
         ctx = get_current_context()
 
         if inspect.iscoroutinefunction(self._func):
-            if ctx is None:
+            if ctx is None or isinstance(ctx, OfflineExecutionContext):
                 return self._run_offline_async(*args, **kwargs)  # type: ignore[return-value]
             return self._run_tracked_async(ctx, *args, **kwargs)  # type: ignore[return-value]
 
-        if ctx is None:
+        if ctx is None or isinstance(ctx, OfflineExecutionContext):
             return self._run_offline(*args, **kwargs)
 
         return self._run_tracked(ctx, *args, **kwargs)
@@ -461,7 +461,12 @@ class ExecutionWrapper(Generic[P, R]):
         logger.warning(
             "Offline mode - execution is running locally and will not update the platform."
         )
-        return self._func(*args, **kwargs)
+        offline_ctx = OfflineExecutionContext()
+        token = _set_context(offline_ctx)
+        try:
+            return self._func(*args, **kwargs)
+        finally:
+            _reset_context(token)
 
     def listener(self, config: SDKConfig | None = None) -> None:
         """Connect to the platform and start the robot polling loop.

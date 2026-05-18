@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .exceptions import ConfigurationError
 
@@ -18,6 +18,9 @@ from .exceptions import ConfigurationError
 _ENV_BASE_URL = "BASE_URL"
 _ENV_API_TOKEN = "API_TOKEN"
 _ENV_INSTANCE_ID = "INSTANCE_ID"
+_ENV_OFFLINE = "OFFLINE"
+
+_TRUTHY = frozenset(("1", "true", "yes", "on"))
 
 # Suffix that must be present at the end of base_url (no trailing slash).
 _API_SUFFIX = "/api/v1"
@@ -73,9 +76,15 @@ class SDKConfig(BaseModel):
                        Trailing slashes, duplicate slashes, and a missing
                        ``/api/v1`` suffix are all handled automatically.
         api_token:     Robot API token issued by the platform (``zst_...``).
+                       Not required when ``offline=True``.
         instance_id:   UUID of the robot instance registered in the platform.
+                       Not required when ``offline=True``.
         poll_interval: Seconds between polling attempts for pending executions.
                        Defaults to 5 seconds.
+        offline:       When ``True`` the robot runs the handler once locally
+                       without connecting to the platform. Equivalent to calling
+                       the execution function directly. Credentials are not
+                       required in this mode.
     """
 
     base_url: str = Field(
@@ -84,15 +93,21 @@ class SDKConfig(BaseModel):
         description="ZSyncTech platform server URL. /api/v1 is appended automatically if absent.",
     )
     api_token: str = Field(
-        description="Robot API token (zst_...).",
+        default="",
+        description="Robot API token (zst_...). Required when offline=False.",
     )
     instance_id: str = Field(
-        description="UUID of the robot instance.",
+        default="",
+        description="UUID of the robot instance. Required when offline=False.",
     )
     poll_interval: float = Field(
         default=5.0,
         ge=1.0,
         description="Seconds between polls for pending executions.",
+    )
+    offline: bool = Field(
+        default=False,
+        description="Run the handler locally without connecting to the platform.",
     )
 
     @field_validator("base_url", mode="before")
@@ -109,6 +124,22 @@ class SDKConfig(BaseModel):
         if not isinstance(value, str):
             raise ValueError("base_url must be a string.")
         return _normalize_base_url(value)
+
+    @model_validator(mode="after")
+    def check_credentials_when_online(self) -> SDKConfig:
+        """Require api_token and instance_id when not in offline mode."""
+        if not self.offline:
+            if not self.api_token:
+                raise ValueError(
+                    "api_token is required when offline=False. "
+                    "Set the API_TOKEN environment variable or pass it explicitly."
+                )
+            if not self.instance_id:
+                raise ValueError(
+                    "instance_id is required when offline=False. "
+                    "Set the INSTANCE_ID environment variable or pass it explicitly."
+                )
+        return self
 
     # -- Factory ---------------------------------------------------------------
 
@@ -131,22 +162,26 @@ class SDKConfig(BaseModel):
         Raises:
             ConfigurationError: If a required variable is absent or empty.
         """
+        offline = os.environ.get(_ENV_OFFLINE, "").strip().lower() in _TRUTHY
+
         api_token = os.environ.get(_ENV_API_TOKEN, "").strip()
         instance_id = os.environ.get(_ENV_INSTANCE_ID, "").strip()
 
-        if not api_token:
-            raise ConfigurationError(
-                f"The {_ENV_API_TOKEN!r} environment variable is required. "
-                "Generate a robot token in the ZSyncTech Studio dashboard."
-            )
-        if not instance_id:
-            raise ConfigurationError(
-                f"The {_ENV_INSTANCE_ID!r} environment variable is required. "
-                "Find the instance UUID in the ZSyncTech Studio dashboard."
-            )
+        if not offline:
+            if not api_token:
+                raise ConfigurationError(
+                    f"The {_ENV_API_TOKEN!r} environment variable is required. "
+                    "Generate a robot token in the ZSyncTech Studio dashboard."
+                )
+            if not instance_id:
+                raise ConfigurationError(
+                    f"The {_ENV_INSTANCE_ID!r} environment variable is required. "
+                    "Find the instance UUID in the ZSyncTech Studio dashboard."
+                )
 
         return cls(
             base_url=os.environ.get(_ENV_BASE_URL, "http://localhost:3000").strip(),
             api_token=api_token,
             instance_id=instance_id,
+            offline=offline,
         )
