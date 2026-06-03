@@ -37,6 +37,7 @@ import functools
 import inspect
 import logging
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Generic, ParamSpec, TypeVar, overload
 
 from rich.logging import RichHandler
@@ -243,8 +244,9 @@ class TaskWrapper(Generic[P, R]):
     def _run_tracked(self, ctx: object, *args: P.args, **kwargs: P.kwargs) -> R:
         """Execute the function with full platform tracking.
 
-        Registers the task, marks it RUNNING, executes the function, and
-        marks it SUCCESS or ERROR depending on the outcome.
+        Executes the function, then reports the result to the platform in a
+        single ``POST /tasks/complete`` call — replacing the old three-call
+        flow (register → RUNNING → terminal status).
 
         Args:
             ctx:     Active :class:`~zsynctech_studio_sdk.context.ExecutionContext`.
@@ -255,51 +257,23 @@ class TaskWrapper(Generic[P, R]):
             The return value of the wrapped function.
 
         Raises:
-            Exception: Re-raised after the task is marked ERROR.
+            Exception: Re-raised after the task result is reported to the platform.
         """
         from .context import ExecutionContext
 
         assert isinstance(ctx, ExecutionContext)
 
         order = ctx.next_task_order()
-
-        # Register the task
-        try:
-            task = ctx.task_service.register(ctx.execution_id, self._name, order)
-        except ApiError as exc:
-            if exc.status_code == 409:
-                raise ExecutionCancelledError(
-                    f"Execution {ctx.execution_id} was cancelled externally."
-                ) from exc
-            logger.error(
-                "Could not register task '%s': %s - running without tracking.",
-                self._name,
-                exc,
-            )
-            return self._func(*args, **kwargs)
-        except Exception as exc:
-            logger.error(
-                "Could not register task '%s': %s - running without tracking.",
-                self._name,
-                exc,
-            )
-            return self._func(*args, **kwargs)
+        ctx.task_observation = None
 
         logger.info("  [%d] [cyan]▶[/cyan]  %s", order + 1, markup_escape(self._name))
-
-        # Mark as RUNNING
-        try:
-            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.RUNNING)
-        except Exception as exc:
-            logger.warning("Could not mark task '%s' as RUNNING: %s", self._name, exc)
-
-        # Reset per-task observation slot so previous tasks don't bleed over
-        ctx.task_observation = None
+        started_at = datetime.now(timezone.utc)
 
         # Execute
         try:
             result: R = self._func(*args, **kwargs)
         except Exception as exc:
+            finished_at = datetime.now(timezone.utc)
             mapped = _resolve_mapped_status(exc, self._status_mapper) if self._status_mapper else None
             task_status = mapped if mapped is not None else TaskStatus.ERROR
             if task_status == TaskStatus.ERROR:
@@ -307,21 +281,45 @@ class TaskWrapper(Generic[P, R]):
             else:
                 logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
             try:
-                ctx.task_service.update(
+                ctx.task_service.complete(
                     ctx.execution_id,
-                    task.id,
-                    status=task_status,
+                    self._name,
+                    task_status,
+                    order=order,
                     observation=ctx.task_observation or str(exc),
+                    started_at=started_at,
+                    finished_at=finished_at,
                 )
+            except ApiError as api_exc:
+                if api_exc.status_code == 409:
+                    raise ExecutionCancelledError(
+                        f"Execution {ctx.execution_id} was cancelled externally."
+                    ) from api_exc
             except Exception:
                 pass
             raise
 
-        # Mark as SUCCESS
+        finished_at = datetime.now(timezone.utc)
+
+        # Report success
         try:
-            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.SUCCESS, observation=ctx.task_observation)
+            ctx.task_service.complete(
+                ctx.execution_id,
+                self._name,
+                TaskStatus.SUCCESS,
+                order=order,
+                observation=ctx.task_observation,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+        except ApiError as api_exc:
+            if api_exc.status_code == 409:
+                raise ExecutionCancelledError(
+                    f"Execution {ctx.execution_id} was cancelled externally."
+                ) from api_exc
+            logger.warning("Could not complete task '%s': %s", self._name, api_exc)
         except Exception as exc:
-            logger.warning("Could not mark task '%s' as SUCCESS: %s", self._name, exc)
+            logger.warning("Could not complete task '%s': %s", self._name, exc)
 
         logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
         return result
@@ -351,44 +349,16 @@ class TaskWrapper(Generic[P, R]):
         assert isinstance(ctx, ExecutionContext)
 
         order = ctx.next_task_order()
-
-        # Register the task
-        try:
-            task = ctx.task_service.register(ctx.execution_id, self._name, order)
-        except ApiError as exc:
-            if exc.status_code == 409:
-                raise ExecutionCancelledError(
-                    f"Execution {ctx.execution_id} was cancelled externally."
-                ) from exc
-            logger.error(
-                "Could not register task '%s': %s - running without tracking.",
-                self._name,
-                exc,
-            )
-            return await self._func(*args, **kwargs)  # type: ignore[misc]
-        except Exception as exc:
-            logger.error(
-                "Could not register task '%s': %s - running without tracking.",
-                self._name,
-                exc,
-            )
-            return await self._func(*args, **kwargs)  # type: ignore[misc]
+        ctx.task_observation = None
 
         logger.info("  [%d] [cyan]▶[/cyan]  %s", order + 1, markup_escape(self._name))
-
-        # Mark as RUNNING
-        try:
-            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.RUNNING)
-        except Exception as exc:
-            logger.warning("Could not mark task '%s' as RUNNING: %s", self._name, exc)
-
-        # Reset per-task observation slot so previous tasks don't bleed over
-        ctx.task_observation = None
+        started_at = datetime.now(timezone.utc)
 
         # Execute
         try:
             result: R = await self._func(*args, **kwargs)  # type: ignore[misc]
         except Exception as exc:
+            finished_at = datetime.now(timezone.utc)
             mapped = _resolve_mapped_status(exc, self._status_mapper) if self._status_mapper else None
             task_status = mapped if mapped is not None else TaskStatus.ERROR
             if task_status == TaskStatus.ERROR:
@@ -396,21 +366,45 @@ class TaskWrapper(Generic[P, R]):
             else:
                 logger.warning("  [%d] [yellow]⚠[/yellow]  %s — %s [%s]", order + 1, markup_escape(self._name), markup_escape(str(exc)), task_status.value)
             try:
-                ctx.task_service.update(
+                ctx.task_service.complete(
                     ctx.execution_id,
-                    task.id,
-                    status=task_status,
+                    self._name,
+                    task_status,
+                    order=order,
                     observation=ctx.task_observation or str(exc),
+                    started_at=started_at,
+                    finished_at=finished_at,
                 )
+            except ApiError as api_exc:
+                if api_exc.status_code == 409:
+                    raise ExecutionCancelledError(
+                        f"Execution {ctx.execution_id} was cancelled externally."
+                    ) from api_exc
             except Exception:
                 pass
             raise
 
-        # Mark as SUCCESS
+        finished_at = datetime.now(timezone.utc)
+
+        # Report success
         try:
-            ctx.task_service.update(ctx.execution_id, task.id, status=TaskStatus.SUCCESS, observation=ctx.task_observation)
+            ctx.task_service.complete(
+                ctx.execution_id,
+                self._name,
+                TaskStatus.SUCCESS,
+                order=order,
+                observation=ctx.task_observation,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+        except ApiError as api_exc:
+            if api_exc.status_code == 409:
+                raise ExecutionCancelledError(
+                    f"Execution {ctx.execution_id} was cancelled externally."
+                ) from api_exc
+            logger.warning("Could not complete task '%s': %s", self._name, api_exc)
         except Exception as exc:
-            logger.warning("Could not mark task '%s' as SUCCESS: %s", self._name, exc)
+            logger.warning("Could not complete task '%s': %s", self._name, exc)
 
         logger.info("  [%d] [green]✔[/green]  %s", order + 1, markup_escape(self._name))
         return result

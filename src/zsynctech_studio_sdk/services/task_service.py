@@ -7,11 +7,12 @@ Each method corresponds to one platform endpoint and returns a typed model.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from ..http.client import HttpClient
 from ..models.enums import TaskStatus
-from ..models.task import RegisterTaskRequest, Task, TaskSummary, UpdateTaskRequest
+from ..models.task import CompleteTaskRequest, RegisterTaskRequest, Task, TaskSummary, UpdateTaskRequest
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,84 @@ class TaskService:
             execution_id,
         )
         return Task.model_validate(data)
+
+    def complete(
+        self,
+        execution_id: str,
+        name: str,
+        status: TaskStatus,
+        order: int | None = None,
+        observation: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        started_at: datetime | None = None,
+        finished_at: datetime | None = None,
+    ) -> Task:
+        """Register and complete a task in a single HTTP round-trip.
+
+        Replaces the three-call flow (register → mark RUNNING → mark terminal)
+        with one ``POST /executions/{id}/tasks/complete`` request. Only accepts
+        terminal statuses: SUCCESS, WARNING, ERROR or SKIPPED.
+
+        Args:
+            execution_id: UUID of the parent execution.
+            name:         Human-readable label for the task step (1–255 chars).
+            status:       Terminal status (SUCCESS, WARNING, ERROR, SKIPPED).
+            order:        Zero-based sequence index. If omitted, the platform
+                          assigns the next available position.
+            observation:  Optional free-text note (error message, summary, etc.).
+            metadata:     Arbitrary JSON data (stack trace, output, etc.).
+
+        Returns:
+            The created :class:`~zsynctech_studio_sdk.models.Task`.
+
+        Raises:
+            NotFoundError: If the execution does not exist.
+            ApiError:      On unexpected platform errors (e.g. 409 if the
+                           execution was cancelled before this call).
+        """
+        request = CompleteTaskRequest(
+            name=name,
+            status=status,
+            order=order,
+            observation=observation,
+            metadata=metadata,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+        # by_alias=True → started_at/finished_at serialized as startedAt/finishedAt
+        # mode='json'   → datetime objects serialized as ISO 8601 strings
+        body = request.model_dump(exclude_none=True, by_alias=True, mode='json')
+        data = self._http.post(f"/executions/{execution_id}/tasks/complete", body)
+        logger.debug("Task '%s' completed (%s) in execution %s.", name, status, execution_id)
+        return Task.model_validate(data)
+
+    def batch_complete(
+        self,
+        execution_id: str,
+        tasks: list[CompleteTaskRequest],
+    ) -> list[Task]:
+        """Register and complete multiple tasks in a single HTTP round-trip.
+
+        Calls ``POST /executions/{id}/tasks/batch``. Accepts 1–500 tasks.
+        Useful when an automation accumulates results before reporting them.
+
+        Args:
+            execution_id: UUID of the parent execution.
+            tasks:        List of :class:`~zsynctech_studio_sdk.models.CompleteTaskRequest`
+                          objects describing each task.
+
+        Returns:
+            List of created :class:`~zsynctech_studio_sdk.models.Task` objects.
+
+        Raises:
+            NotFoundError: If the execution does not exist.
+            ApiError:      On unexpected platform errors.
+        """
+        body = {"tasks": [t.model_dump(exclude_none=True) for t in tasks]}
+        data = self._http.post(f"/executions/{execution_id}/tasks/batch", body)
+        items: list[Any] = data if isinstance(data, list) else data.get("data", data)
+        logger.debug("Batch of %d task(s) completed in execution %s.", len(tasks), execution_id)
+        return [Task.model_validate(item) for item in items]
 
     # -- Query methods ---------------------------------------------------------
 

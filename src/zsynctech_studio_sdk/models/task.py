@@ -61,6 +61,31 @@ class RegisterTaskRequest(_PlatformModel):
     order: int | None = None
 
 
+class CompleteTaskRequest(_PlatformModel):
+    """Request payload for the single-call task endpoint.
+
+    Registers and completes a task in one HTTP round-trip, replacing the
+    three-call flow (register → mark RUNNING → mark terminal).
+
+    Attributes:
+        name:        Human-readable label (1–255 characters).
+        status:      Terminal status: SUCCESS, WARNING, ERROR or SKIPPED.
+        observation: Optional free-text note (error message, summary, etc.).
+        metadata:    Arbitrary JSON data (stack trace, output, etc.).
+        order:       Zero-based sequence index. Omit to let the service assign it.
+        started_at:  When the task actually started. Sent as ``startedAt`` (ISO 8601).
+        finished_at: When the task actually finished. Sent as ``finishedAt`` (ISO 8601).
+    """
+
+    name: str
+    status: TaskStatus
+    observation: str | None = None
+    metadata: dict[str, Any] | None = None
+    order: int | None = None
+    started_at: datetime | None = Field(default=None, serialization_alias="startedAt")
+    finished_at: datetime | None = Field(default=None, serialization_alias="finishedAt")
+
+
 class UpdateTaskRequest(_PlatformModel):
     """Request payload for updating a task's status and result.
 
