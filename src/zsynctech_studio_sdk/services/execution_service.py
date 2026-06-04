@@ -11,6 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+# Long-poll timeout sent to the server (seconds).
+# Must be less than the HTTP client timeout (30 s) so the server always
+# responds before httpx raises a TimeoutException.
+_LONG_POLL_TIMEOUT_S = 25
+
 from ..http.client import HttpClient
 from ..models.enums import ExecutionStatus
 from ..models.execution import Execution, PagedResponse
@@ -58,7 +63,10 @@ class ExecutionService:
             NotFoundError:       If the instance UUID does not exist on the platform.
             ApiError:            On unexpected platform errors.
         """
-        data = self._http.get(f"/executions/pending/{instance_id}")
+        data = self._http.get(
+            f"/executions/pending/{instance_id}",
+            params={"timeout": _LONG_POLL_TIMEOUT_S},
+        )
 
         if data is None:
             return None

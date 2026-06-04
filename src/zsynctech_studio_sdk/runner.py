@@ -174,6 +174,8 @@ class RobotRunner:
                 time.sleep(_RECONNECT_WAIT_S)
                 continue
             except httpx.TimeoutException:
+                # With long-polling the server responds within 25 s. A timeout
+                # here means a real connectivity issue — wait before retrying.
                 logger.warning(
                     "Request to the platform timed out. Retrying in %.0f s...",
                     _RECONNECT_WAIT_S,
@@ -187,9 +189,9 @@ class RobotRunner:
 
             if pending is not None:
                 self._process(pending)
-            else:
-                logger.debug("No pending executions. Waiting %.1f s.", self._config.poll_interval)
-                time.sleep(self._config.poll_interval)
+            # No sleep when pending is None — the server already held the
+            # connection for ~25 s. Reconnect immediately to avoid missing
+            # work submitted right after the long-poll expired.
 
     def _process(self, pending: object) -> None:
         """Claim and execute a single pending execution.
