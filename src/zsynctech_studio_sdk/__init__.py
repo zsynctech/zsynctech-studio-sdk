@@ -42,11 +42,15 @@ Advanced usage::
 from .config import SDKConfig
 from .context import get_current_context
 from .decorators import execution, task
+from .models.execution import ExecutionStatus
+from .models.task import TaskStatus
 
 __all__ = [
     "task",
     "execution",
     "SDKConfig",
     "get_current_context",
+    "ExecutionStatus",
+    "TaskStatus"
 ]
 
