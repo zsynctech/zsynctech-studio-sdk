@@ -36,6 +36,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
+import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Generic, ParamSpec, TypeVar, overload
@@ -140,6 +141,15 @@ def _setup_logging() -> None:
     root = logging.getLogger()
     if root.handlers:
         return
+
+    # Reconfigure stdout to UTF-8 so Rich can render Unicode characters
+    # (e.g. ▶ ✔) when running under pm2 or other environments that inherit
+    # a cp1252 stdout from Windows.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
     handler = RichHandler(
         console=Console(legacy_windows=False),
