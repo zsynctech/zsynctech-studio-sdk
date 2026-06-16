@@ -40,6 +40,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Generic, ParamSpec, TypeVar, overload
 
+from rich.console import Console
 from rich.logging import RichHandler
 from rich.markup import escape as markup_escape
 
@@ -141,6 +142,7 @@ def _setup_logging() -> None:
         return
 
     handler = RichHandler(
+        console=Console(legacy_windows=False),
         show_path=False,
         rich_tracebacks=True,
         markup=True,
