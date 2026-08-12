@@ -17,14 +17,17 @@ Disponível em duas versões com a mesma interface: `zsyncstudio.sync_api`
 ## Instalação
 
 ```bash
-uv add zsyncstudio
+uv add zsynctech-studio-sdk
 ```
 
 ou
 
 ```bash
-pip install zsyncstudio
+pip install zsynctech-studio-sdk
 ```
+
+> O pacote se chama `zsynctech-studio-sdk` no PyPI, mas o módulo Python é
+> `zsyncstudio` — é ele que você importa nos exemplos abaixo.
 
 ## Guia rápido
 

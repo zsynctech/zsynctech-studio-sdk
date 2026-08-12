@@ -1,6 +1,6 @@
 [project]
-name = "zsyncstudio"
-version = "1.3.19"
+name = "zsynctech-studio-sdk"
+version = "1.3.20"
 description = "SDK Python para integração de robôs (RPA) com o ZSync Tech Studio"
 readme = "README.md"
 authors = [
@@ -17,6 +17,9 @@ zsyncstudio = "zsyncstudio:main"
 [build-system]
 requires = ["uv_build>=0.11.22,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "zsyncstudio"
 
 [dependency-groups]
 dev = [

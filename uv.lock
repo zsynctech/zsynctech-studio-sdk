@@ -465,8 +465,8 @@ wheels = [
 ]
 
 [[package]]
-name = "zsyncstudio"
-version = "0.1.0"
+name = "zsynctech-studio-sdk"
+version = "1.3.20"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
