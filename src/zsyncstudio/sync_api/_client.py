@@ -18,10 +18,10 @@ from .._http import (
     raise_for_status,
     resolve_api_base_url,
 )
-from ..enums import TERMINAL_EXECUTION_STATUSES, ExecutionStatus, TaskStatus
+from ..enums import TERMINAL_EXECUTION_STATUSES, ExecutionStatus, SecretType, TaskStatus
 from ..exceptions import ConnectionError as ZSyncConnectionError
 from ..exceptions import ServerError
-from ..models import Execution, Page, Task, TaskCompletion, TaskSummary
+from ..models import Execution, Page, SecretMeta, Task, TaskCompletion, TaskSummary
 
 
 class Client:
@@ -271,6 +271,22 @@ class Client:
         )
         return Execution.from_api(data)
 
+    def set_total_tasks(self, execution_id: str, total_tasks: int) -> Execution:
+        """Declara quantas tasks a execução `RUNNING` deve processar no total.
+
+        Faz o progresso exibido no dashboard acompanhar esse valor (ex.:
+        "45/1000") em vez de sempre mostrar reportado/reportado. Pode ser
+        chamado mais de uma vez; se o robô processar mais tasks do que
+        declarou, o total exibido acompanha o que já foi processado em vez
+        de passar de 100%.
+        """
+        data = self._request(
+            "PATCH",
+            f"/executions/{execution_id}/total-tasks",
+            json={"totalTasks": total_tasks},
+        )
+        return Execution.from_api(data)
+
     # ──────────────── Tasks ────────────────
 
     def complete_task(
@@ -386,6 +402,45 @@ class Client:
         execution_id = execution if isinstance(execution, str) else execution.id
         return ExecutionRun(self, execution_id)
 
+    # ──────────────── Secrets ────────────────
+
+    def get_secret(self, secret_id: str, *, version: int | None = None) -> Secret:
+        """Revela (descriptografa) o valor de uma credencial.
+
+        Sem `version`, revela a versão atual. Falha com `ValidationError` se a
+        credencial estiver expirada (rotacione com `secret.rotate(...)` antes
+        de revelar) ou com `NotFoundError` se ela (ou a versão) não existir.
+
+        ```python
+        secret = client.get_secret(secret_id)
+        password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo da credencial
+        ```
+        """
+        data = self._request("GET", f"/secrets/{secret_id}/reveal", params={"version": version})
+        return Secret(
+            self,
+            secret_id=data["secretId"],
+            version_number=data["versionNumber"],
+            type=SecretType(data["type"]),
+            value=data["value"],
+            revealed_at=datetime.fromisoformat(data["revealedAt"]),
+        )
+
+    def rotate_secret(
+        self, secret_id: str, value: Any, *, expires_at: datetime | None = None
+    ) -> SecretMeta:
+        """Cria uma nova versão de uma credencial com o valor informado.
+
+        Nunca sobrescreve a versão atual — sempre cria a próxima. `value`
+        precisa respeitar o tipo da credencial (texto, par chave-valor ou
+        JSON). Falha com `ConflictError` se a credencial estiver bloqueada.
+        """
+        payload: dict[str, Any] = {"value": value}
+        if expires_at is not None:
+            payload["expiresAt"] = expires_at.isoformat()
+        data = self._request("POST", f"/secrets/{secret_id}/versions", json=payload)
+        return SecretMeta.from_api(data)
+
 
 class ExecutionRun:
     """Execução aberta por `Client.run_execution`, controlada de forma imperativa."""
@@ -448,6 +503,17 @@ class ExecutionRun:
         """
         return self._client.update_observation(self._execution_id, observation)
 
+    def set_total_tasks(self, total_tasks: int) -> Execution:
+        """Declara quantas tasks a execução deve processar no total.
+
+        Faz o progresso exibido no dashboard acompanhar esse valor (ex.:
+        "45/1000") em vez de sempre mostrar reportado/reportado. Pode ser
+        chamado mais de uma vez; se o robô processar mais tasks do que
+        declarou, o total exibido acompanha o que já foi processado em vez
+        de passar de 100%.
+        """
+        return self._client.set_total_tasks(self._execution_id, total_tasks)
+
 
 class TaskRun:
     """Task aberta por `ExecutionRun.task()` — local até um dos métodos de
@@ -506,3 +572,38 @@ class TaskRun:
             started_at=started_at,
             finished_at=finished_at,
         )
+
+
+class Secret:
+    """Credencial revelada por `Client.get_secret()` — o valor já vem descriptografado.
+
+    `value` é `str` para credenciais do tipo `TEXT`, `dict[str, str]` para
+    `KEY_VALUE`, ou o dado JSON decodificado para `JSON`.
+    """
+
+    def __init__(
+        self,
+        client: Client,
+        *,
+        secret_id: str,
+        version_number: int,
+        type: SecretType,
+        value: Any,
+        revealed_at: datetime,
+    ) -> None:
+        self._client = client
+        self.secret_id = secret_id
+        self.version_number = version_number
+        self.type = type
+        self.value = value
+        self.revealed_at = revealed_at
+
+    def rotate(self, value: Any, *, expires_at: datetime | None = None) -> SecretMeta:
+        """Cria uma nova versão desta credencial com o valor informado.
+
+        Equivalente a `client.rotate_secret(secret.secret_id, value, ...)`.
+        Esta instância de `Secret` continua representando a versão que você
+        revelou — chame `client.get_secret(...)` de novo se precisar do valor
+        recém-rotacionado.
+        """
+        return self._client.rotate_secret(self.secret_id, value, expires_at=expires_at)

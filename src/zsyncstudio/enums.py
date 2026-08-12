@@ -39,3 +39,18 @@ TERMINAL_EXECUTION_STATUSES: frozenset[ExecutionStatus] = frozenset(
 TERMINAL_TASK_STATUSES: frozenset[TaskStatus] = frozenset(
     {TaskStatus.SUCCESS, TaskStatus.WARNING, TaskStatus.ERROR, TaskStatus.SKIPPED}
 )
+
+
+class SecretType(StrEnum):
+    """Formato do valor guardado em uma credencial (secret)."""
+
+    TEXT = "TEXT"
+    KEY_VALUE = "KEY_VALUE"
+    JSON = "JSON"
+
+
+class SecretStatus(StrEnum):
+    """Status de uma credencial (secret)."""
+
+    ACTIVE = "ACTIVE"
+    DELETED = "DELETED"

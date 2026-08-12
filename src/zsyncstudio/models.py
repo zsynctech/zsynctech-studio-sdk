@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .enums import TERMINAL_TASK_STATUSES, ExecutionStatus, TaskStatus
+from .enums import TERMINAL_TASK_STATUSES, ExecutionStatus, SecretStatus, SecretType, TaskStatus
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -41,6 +41,7 @@ class Execution:
     started_at: datetime | None
     finished_at: datetime | None
     observation: str | None
+    total_tasks: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -57,6 +58,7 @@ class Execution:
             started_at=_parse_datetime(data.get("startedAt")),
             finished_at=_parse_datetime(data.get("finishedAt")),
             observation=data.get("observation"),
+            total_tasks=data.get("totalTasks"),
             created_at=_require_datetime(data["createdAt"]),
             updated_at=_require_datetime(data["updatedAt"]),
         )
@@ -110,6 +112,7 @@ class TaskSummary:
     """Estatísticas agregadas das tasks de uma execução."""
 
     total: int
+    total_tasks: int | None
     success: int
     error: int
     warning: int
@@ -125,6 +128,7 @@ class TaskSummary:
         slowest = data.get("slowestTask")
         return cls(
             total=data["total"],
+            total_tasks=data.get("totalTasks"),
             success=data["success"],
             error=data["error"],
             warning=data["warning"],
@@ -133,6 +137,41 @@ class TaskSummary:
             total_duration_ms=data["totalDurationMs"],
             fastest_task=TaskTiming.from_api(fastest) if fastest else None,
             slowest_task=TaskTiming.from_api(slowest) if slowest else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SecretMeta:
+    """Metadados de uma credencial (secret) — nunca inclui o valor.
+
+    Retornado por `Client.rotate_secret()`. Para ler o valor, use
+    `Client.get_secret()`, que devolve um `Secret`.
+    """
+
+    id: str
+    name: str
+    type: SecretType
+    expires_at: datetime | None
+    expired: bool
+    current_version: int
+    status: SecretStatus
+    locked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> SecretMeta:
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            type=SecretType(data["type"]),
+            expires_at=_parse_datetime(data.get("expiresAt")),
+            expired=data["expired"],
+            current_version=data["currentVersion"],
+            status=SecretStatus(data["status"]),
+            locked_at=_parse_datetime(data.get("lockedAt")),
+            created_at=_require_datetime(data["createdAt"]),
+            updated_at=_require_datetime(data["updatedAt"]),
         )
 
 

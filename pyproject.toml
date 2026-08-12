@@ -1,6 +1,6 @@
 [project]
 name = "zsynctech-studio-sdk"
-version = "1.3.20"
+version = "1.3.21"
 description = "SDK Python para integração de robôs (RPA) com o ZSync Tech Studio"
 readme = "README.md"
 authors = [

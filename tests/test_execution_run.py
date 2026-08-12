@@ -188,3 +188,23 @@ def test_run_execution_update_observation_does_not_finish(
     assert execution.status is ExecutionStatus.RUNNING
     assert observation_route.calls.call_count == 1
     assert finish_route.calls.call_count == 0
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_run_execution_set_total_tasks_does_not_finish(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    total_tasks_route = respx_mock.patch(
+        f"{API_BASE_URL}/executions/{EXECUTION_ID}/total-tasks"
+    ).mock(return_value=httpx.Response(200, json=make_execution(totalTasks=1000)))
+    finish_route = respx_mock.post(f"{API_BASE_URL}/executions/{EXECUTION_ID}/finish").mock(
+        return_value=httpx.Response(200, json=make_execution(status="COMPLETED"))
+    )
+
+    run = client.run_execution(EXECUTION_ID)
+    execution = run.set_total_tasks(1000)
+
+    assert execution.total_tasks == 1000
+    assert execution.status is ExecutionStatus.RUNNING
+    assert total_tasks_route.calls.call_count == 1
+    assert finish_route.calls.call_count == 0

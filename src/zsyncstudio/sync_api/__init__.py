@@ -4,6 +4,8 @@ from ..enums import (
     TERMINAL_EXECUTION_STATUSES,
     TERMINAL_TASK_STATUSES,
     ExecutionStatus,
+    SecretStatus,
+    SecretType,
     TaskStatus,
 )
 from ..exceptions import (
@@ -19,14 +21,16 @@ from ..exceptions import (
     ValidationError,
     ZSyncStudioError,
 )
-from ..models import Execution, Page, Task, TaskCompletion, TaskSummary, TaskTiming
-from ._client import Client, ExecutionRun
+from ..models import Execution, Page, SecretMeta, Task, TaskCompletion, TaskSummary, TaskTiming
+from ._client import Client, ExecutionRun, Secret
 
 __all__ = [
     "Client",
     "ExecutionRun",
     "ExecutionStatus",
     "TaskStatus",
+    "SecretType",
+    "SecretStatus",
     "TERMINAL_EXECUTION_STATUSES",
     "TERMINAL_TASK_STATUSES",
     "ApiError",
@@ -42,6 +46,8 @@ __all__ = [
     "ZSyncStudioError",
     "Execution",
     "Page",
+    "Secret",
+    "SecretMeta",
     "Task",
     "TaskCompletion",
     "TaskSummary",

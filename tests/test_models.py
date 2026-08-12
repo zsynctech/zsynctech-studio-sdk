@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tests.factories import make_execution, make_page, make_task
-from zsyncstudio.enums import ExecutionStatus, TaskStatus
-from zsyncstudio.models import Execution, Page, Task, TaskCompletion, TaskSummary
+from tests.factories import make_execution, make_page, make_secret_meta, make_task
+from zsyncstudio.enums import ExecutionStatus, SecretStatus, SecretType, TaskStatus
+from zsyncstudio.models import Execution, Page, SecretMeta, Task, TaskCompletion, TaskSummary
 
 
 def test_execution_from_api_parses_all_fields() -> None:
@@ -26,6 +26,17 @@ def test_task_from_api_parses_metadata() -> None:
 
     assert task.status is TaskStatus.ERROR
     assert task.metadata == {"attempt": 1}
+
+
+def test_secret_meta_from_api_parses_all_fields() -> None:
+    meta = SecretMeta.from_api(
+        make_secret_meta(type="KEY_VALUE", status="ACTIVE", expiresAt="2027-01-01T00:00:00.000Z")
+    )
+
+    assert meta.type is SecretType.KEY_VALUE
+    assert meta.status is SecretStatus.ACTIVE
+    assert meta.expires_at == datetime.fromisoformat("2027-01-01T00:00:00.000Z")
+    assert meta.locked_at is None
 
 
 def test_task_summary_from_api_handles_no_timed_tasks() -> None:

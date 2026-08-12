@@ -69,6 +69,19 @@ Para reportar progresso no meio de uma execução longa, sem finalizá-la:
 execution.update_observation("processando lote 3 de 10")
 ```
 
+Se você sabe de antemão quantos itens serão processados, informe logo após
+`start()` para o dashboard acompanhar o progresso real (ex.: "45/1000") em
+vez de reportado/reportado:
+
+```python
+execution.set_total_tasks(1000)
+```
+
+Pode ser chamado mais de uma vez. Se você não informar, o total acompanha o
+que já foi processado (1/1, 2/2, ...); se processar mais itens do que
+declarou, o total passa a acompanhar o que já foi processado em vez de
+ultrapassar 100%.
+
 ### Robôs que decidem sozinhos quando rodar
 
 Se o robô não depende da plataforma para saber quando executar (por exemplo,
@@ -76,6 +89,29 @@ dispara pelo agendador do próprio sistema operacional), use
 `client.start_execution()` em vez de `poll_pending_executions()` — a execução
 já nasce em andamento, então pule o `execution.start()` e vá direto para as
 tasks.
+
+## Credenciais (secrets)
+
+Se o robô precisa de uma senha ou token guardado no cofre de credenciais da
+plataforma, revele o valor pelo id da credencial:
+
+```python
+secret = client.get_secret(secret_id)
+password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo da credencial
+```
+
+Depois de trocar a senha no sistema de destino, registre o novo valor (isso
+cria uma nova versão, nunca sobrescreve a atual):
+
+```python
+secret.rotate("nova-senha")
+```
+
+Credenciais expiradas bloqueiam `get_secret()` até alguém rotacionar o valor.
+Credenciais bloqueadas ("locked") pelo administrador bloqueiam `rotate()`.
+Criar, excluir, bloquear/desbloquear e ver o histórico de versões só estão
+disponíveis para administradores pelo painel — o token do robô só pode
+revelar e rotacionar.
 
 ## Uso assíncrono
 

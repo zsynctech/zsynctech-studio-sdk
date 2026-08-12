@@ -10,15 +10,18 @@ from tests.factories import (
     BASE_URL,
     EXECUTION_ID,
     INSTANCE_ID,
+    SECRET_ID,
     make_error_body,
     make_execution,
     make_page,
+    make_reveal_secret,
+    make_secret_meta,
     make_task,
 )
 from zsyncstudio.exceptions import AuthenticationError, ConflictError, NotFoundError
 from zsyncstudio.exceptions import ConnectionError as ZSyncConnectionError
 from zsyncstudio.models import Page, Task, TaskCompletion
-from zsyncstudio.sync_api import Client, ExecutionRun, ExecutionStatus, TaskStatus
+from zsyncstudio.sync_api import Client, ExecutionRun, ExecutionStatus, SecretType, TaskStatus
 
 
 @pytest.fixture
@@ -180,6 +183,18 @@ def test_update_observation_sends_patch(respx_mock: respx.MockRouter, client: Cl
     assert execution.observation == "lote 3 de 10"
     assert execution.status is ExecutionStatus.RUNNING
     assert route.calls.last.request.content == b'{"observation":"lote 3 de 10"}'
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_set_total_tasks_sends_patch(respx_mock: respx.MockRouter, client: Client) -> None:
+    route = respx_mock.patch(f"{API_BASE_URL}/executions/{EXECUTION_ID}/total-tasks").mock(
+        return_value=httpx.Response(200, json=make_execution(totalTasks=1000))
+    )
+
+    execution = client.set_total_tasks(EXECUTION_ID, 1000)
+
+    assert execution.total_tasks == 1000
+    assert route.calls.last.request.content == b'{"totalTasks":1000}'
 
 
 @pytest.mark.respx(assert_all_called=False)
@@ -420,3 +435,89 @@ def test_poll_pending_executions_does_not_retry_non_server_api_errors(
         client.poll_pending_executions(timeout=1, retry_delay=0)
 
     assert route.calls.call_count == 1
+
+
+# ──────────────── Secrets ────────────────
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_get_secret_reveals_current_version(respx_mock: respx.MockRouter, client: Client) -> None:
+    route = respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(200, json=make_reveal_secret())
+    )
+
+    secret = client.get_secret(SECRET_ID)
+
+    assert secret.secret_id == SECRET_ID
+    assert secret.version_number == 1
+    assert secret.type is SecretType.TEXT
+    assert secret.value == "s3cr3t"
+    assert route.calls.last.request.url.params.get("version") is None
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_get_secret_requests_specific_version(respx_mock: respx.MockRouter, client: Client) -> None:
+    route = respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(200, json=make_reveal_secret(versionNumber=3))
+    )
+
+    secret = client.get_secret(SECRET_ID, version=3)
+
+    assert secret.version_number == 3
+    assert route.calls.last.request.url.params["version"] == "3"
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_get_secret_parses_key_value_type(respx_mock: respx.MockRouter, client: Client) -> None:
+    respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(
+            200,
+            json=make_reveal_secret(type="KEY_VALUE", value={"user": "bot", "password": "hunter2"}),
+        )
+    )
+
+    secret = client.get_secret(SECRET_ID)
+
+    assert secret.type is SecretType.KEY_VALUE
+    assert secret.value == {"user": "bot", "password": "hunter2"}
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_rotate_secret_sends_post_with_value(respx_mock: respx.MockRouter, client: Client) -> None:
+    route = respx_mock.post(f"{API_BASE_URL}/secrets/{SECRET_ID}/versions").mock(
+        return_value=httpx.Response(200, json=make_secret_meta(currentVersion=2))
+    )
+
+    meta = client.rotate_secret(SECRET_ID, "new-value")
+
+    assert meta.current_version == 2
+    assert route.calls.last.request.content == b'{"value":"new-value"}'
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_rotate_secret_omits_expires_at_when_not_given(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    route = respx_mock.post(f"{API_BASE_URL}/secrets/{SECRET_ID}/versions").mock(
+        return_value=httpx.Response(200, json=make_secret_meta())
+    )
+
+    client.rotate_secret(SECRET_ID, "value")
+
+    assert b"expiresAt" not in route.calls.last.request.content
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_secret_rotate_delegates_to_client(respx_mock: respx.MockRouter, client: Client) -> None:
+    respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(200, json=make_reveal_secret())
+    )
+    rotate_route = respx_mock.post(f"{API_BASE_URL}/secrets/{SECRET_ID}/versions").mock(
+        return_value=httpx.Response(200, json=make_secret_meta(currentVersion=2))
+    )
+
+    secret = client.get_secret(SECRET_ID)
+    meta = secret.rotate("rotated-value")
+
+    assert meta.current_version == 2
+    assert rotate_route.calls.last.request.content == b'{"value":"rotated-value"}'
