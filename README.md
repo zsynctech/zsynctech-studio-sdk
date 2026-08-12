@@ -1,249 +1,143 @@
-# ZSyncTech Studio SDK
+# zsyncstudio
 
-SDK Python para construir robôs que se integram à plataforma de automação [ZSyncTech Studio](https://zsynctech.com).
+SDK Python para robôs (RPA) se conectarem ao ZSync Tech Studio: buscar
+execuções pendentes, reportar o progresso de cada etapa (task) e finalizar a
+execução — usando o token de API gerado para a instância do robô.
+
+Disponível em duas versões com a mesma interface: `zsyncstudio.sync_api`
+(síncrona) e `zsyncstudio.async_api` (assíncrona, com `async`/`await`).
 
 ## Requisitos
 
 - Python ≥ 3.13
-- Uma instância do ZSyncTech Studio em execução
-- Um token de API de robô e o UUID da instância obtidos no painel da plataforma
+- Uma instância do ZSync Tech Studio em execução
+- Token de API do robô, gerado no dashboard da plataforma (formato
+  `zst_<instanceId>.<secret>`)
 
 ## Instalação
 
 ```bash
-pip install zsynctech-studio-sdk
+uv add zsyncstudio
 ```
 
-Ou com [uv](https://docs.astral.sh/uv/):
+ou
 
 ```bash
-uv add zsynctech-studio-sdk
+pip install zsyncstudio
 ```
 
-## Início Rápido
-
-Crie um arquivo `.env` com suas credenciais:
-
-```env
-API_TOKEN=zst_your_token_here
-INSTANCE_ID=your-instance-uuid
-BASE_URL=http://localhost:3000   # optional, defaults to http://localhost:3000
-```
-
-Defina seu robô:
+## Guia rápido
 
 ```python
-from zsynctech_studio_sdk import task, execution
+from zsyncstudio.sync_api import Client, ExecutionRun
 
-@task
-def fetch_data():
-    # your logic here
-    ...
+client = Client("https://studio.exemplo.com", api_token)
 
-@task(name="Process records")
-def process():
-    # your logic here
-    ...
 
-@execution
-def run():
-    fetch_data()
-    process()
+def run(execution: ExecutionRun) -> None:
+    execution.start()  # reivindica a execução: PENDING → RUNNING
+
+    for invoice in invoices:
+        task = execution.task(invoice.number)
+        try:
+            charge(invoice)
+        except Exception as exc:
+            task.error(str(exc))
+        else:
+            task.finish()
+
+    execution.error("alguns itens falharam") if execution.had_errors else execution.finish()
+
 
 if __name__ == "__main__":
-    run.listener()
+    while execution := client.poll_pending_executions():
+        run(execution)
 ```
 
-Execute:
+O robô fica esperando em `poll_pending_executions()` até a plataforma disparar
+uma execução (pelo dashboard ou pela API). Cada `task(...)` representa um item
+processado; chame `finish()`, `warning()`, `error()` ou `skip()` para reportar
+o resultado. No fim, `finish()` marca a execução como concluída e `error()`
+como falha.
 
-```bash
-python robot.py
-```
-
-O robô se conectará à plataforma e começará a verificar execuções pendentes. Sempre que uma execução for disparada pelo painel (ou via API), a função `run` é chamada e cada etapa `@task` é rastreada em tempo real.
-
-## Configuração
-
-`SDKConfig` armazena todas as configurações de conexão. Pode ser construído a partir de variáveis de ambiente (padrão) ou explicitamente.
-
-### Via variáveis de ambiente
-
-| Variável      | Obrigatória | Padrão                   | Descrição                                      |
-|---------------|-------------|--------------------------|------------------------------------------------|
-| `API_TOKEN`   | sim         | —                        | Token de API do robô emitido pela plataforma   |
-| `INSTANCE_ID` | sim         | —                        | UUID da instância de robô registrada           |
-| `BASE_URL`    | não         | `http://localhost:3000`  | URL raiz da plataforma ZSyncTech               |
+Para reportar progresso no meio de uma execução longa, sem finalizá-la:
 
 ```python
-from zsynctech_studio_sdk import SDKConfig
-
-config = SDKConfig.from_env()
+execution.update_observation("processando lote 3 de 10")
 ```
 
-### Configuração explícita
+### Robôs que decidem sozinhos quando rodar
+
+Se o robô não depende da plataforma para saber quando executar (por exemplo,
+dispara pelo agendador do próprio sistema operacional), use
+`client.start_execution()` em vez de `poll_pending_executions()` — a execução
+já nasce em andamento, então pule o `execution.start()` e vá direto para as
+tasks.
+
+## Uso assíncrono
 
 ```python
-from zsynctech_studio_sdk import SDKConfig
+from zsyncstudio.async_api import Client, ExecutionRun
 
-config = SDKConfig(
-    base_url="https://studio.mycompany.com",
-    api_token="zst_abc123",
-    instance_id="550e8400-e29b-41d4-a716-446655440000",
-    poll_interval=10.0,  # seconds between polls, default is 5
-)
+client = Client(base_url, api_token)
 
-run.listener(config=config)
+
+async def run(execution: ExecutionRun) -> None:
+    await execution.start()
+
+    for invoice in invoices:
+        task = execution.task(invoice.number)
+        try:
+            await charge(invoice)
+        except Exception as exc:
+            await task.error(str(exc))
+        else:
+            await task.finish()
+
+
+async def main() -> None:
+    while execution := await client.poll_pending_executions():
+        await run(execution)
 ```
 
-O sufixo `/api/v1` é adicionado automaticamente caso não esteja presente em `base_url`.
+## Tratamento de erros
 
-## Decoradores
-
-### `@task`
-
-Marca uma função como uma etapa rastreada dentro de uma execução. Quando rodando dentro de um listener, a tarefa é registrada na plataforma e seu status é atualizado automaticamente.
+Problemas de comunicação com a plataforma chegam como exceções que você pode
+capturar:
 
 ```python
-@task
-def my_step():
-    ...
-
-# Custom display name shown in the platform UI
-@task(name="Download report")
-def download():
-    ...
-```
-
-Fora de um listener (ex.: em testes unitários), funções `@task` se comportam como funções normais, sem interação com a plataforma.
-
-### `@execution`
-
-Marca uma função como o ponto de entrada do robô. Adiciona o método `.listener()` que inicia o loop de polling.
-
-```python
-@execution
-def run():
-    step_one()
-    step_two()
-
-# Start the robot (blocks until Ctrl+C)
-run.listener()
-
-# Pass explicit config
-run.listener(config=SDKConfig(...))
-```
-
-Chamar a função decorada diretamente (sem `.listener()`) a executa em modo offline — útil para testes locais.
-
-## Mapeadores de Status
-
-Ambos os decoradores aceitam um `status_mapper` opcional que controla o que acontece quando exceções específicas são lançadas.
-
-### Mapeador de status de tarefa
-
-Mapeia tipos de exceção para valores de `TaskStatus`. Qualquer status diferente de `ERROR` suprime a exceção e permite que a execução continue.
-
-```python
-from zsynctech_studio_sdk import task, TaskStatus
-
-class DataNotFound(Exception):
-    pass
-
-@task(
-    name="Fetch records",
-    status_mapper={DataNotFound: TaskStatus.WARNING},
-)
-def fetch_records():
-    raise DataNotFound("No records today")
-    # task finishes as WARNING, execution continues
-```
-
-### Mapeador de status de execução
-
-Mapeia tipos de exceção para valores de `ExecutionStatus`. Mapear para `COMPLETED` suprime o erro e finaliza a execução normalmente.
-
-```python
-from zsynctech_studio_sdk import execution, ExecutionStatus
-
-class MaintenanceError(Exception):
-    pass
-
-@execution(
-    status_mapper={MaintenanceError: ExecutionStatus.COMPLETED},
-)
-def run():
-    ...
-    raise MaintenanceError("System in maintenance, skipping")
-    # execution finishes as COMPLETED instead of FAILED
-```
-
-Valores disponíveis de `TaskStatus`: `PENDING`, `RUNNING`, `SUCCESS`, `WARNING`, `ERROR`, `SKIPPED`
-
-Valores disponíveis de `ExecutionStatus`: `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`
-
-## Uso Avançado
-
-### Acessando o contexto atual
-
-Dentro de uma função `@task` ou `@execution` é possível acessar o contexto de execução ativo:
-
-```python
-from zsynctech_studio_sdk import get_current_context
-
-@task
-def my_step():
-    ctx = get_current_context()
-    if ctx:
-        print(f"Running inside execution {ctx.execution_id}")
-```
-
-### Definindo observações personalizadas
-
-O contexto expõe dois campos para anexar mensagens de texto à task ou à execução, sem precisar lançar uma exceção.
-
-**`ctx.task_observation`** — define a observação enviada ao finalizar a task atual (sucesso ou erro). Se não definido e ocorrer uma exceção, a mensagem da exceção é usada automaticamente. O valor é resetado a cada nova task.
-
-```python
-from zsynctech_studio_sdk import task, get_current_context
-
-@task
-def process_records():
-    ctx = get_current_context()
-    records = fetch()
-    ctx.task_observation = f"Processed {len(records)} records"
-```
-
-**`ctx.execution_observation`** — define a observação enviada ao finalizar a execução inteira. Quando definido, sobrescreve a mensagem de exceção (caso haja).
-
-```python
-from zsynctech_studio_sdk import execution, task, get_current_context
-
-@execution
-def run():
-    ctx = get_current_context()
-    process_records()
-    ctx.execution_observation = "All steps completed successfully"
-```
-
-## Hierarquia de Exceções
-
-```
-SDKError
-├── ConfigurationError   — configuração inválida ou ausente
-├── AuthenticationError  — token de API rejeitado pela plataforma (HTTP 401)
-├── NotFoundError        — recurso solicitado não existe (HTTP 404)
-├── ApiError             — resposta HTTP 4xx/5xx inesperada da plataforma
-├── TaskError            — falha na operação de registro/atualização de tarefa
-└── ExecutionError       — falha em operação do ciclo de vida de execução
-```
-
-```python
-from zsynctech_studio_sdk import AuthenticationError, ApiError
+from zsyncstudio.sync_api import AuthenticationError, ApiError
 
 try:
-    run.listener()
+    client.poll_pending_executions()
 except AuthenticationError:
-    print("Invalid or expired API token.")
-except ApiError as e:
-    print(f"Platform error {e.status_code}: {e.detail}")
+    print("Token inválido ou expirado.")
+except ApiError as exc:
+    print(f"Erro da plataforma ({exc.status_code}): {exc.message}")
+```
+
+As principais exceções: `AuthenticationError` (token inválido), `NotFoundError`
+(execução/instância inexistente), `ConflictError` (ex.: tentar finalizar uma
+execução já encerrada) e `ConnectionError` (falha de rede). Todas herdam de
+`ApiError` ou `ZSyncStudioError` e podem ser importadas de
+`zsyncstudio.sync_api` / `zsyncstudio.async_api`.
+
+Dentro de uma task, você também pode levantar `TaskWarning` ou `TaskSkipped`
+para marcar o item como aviso ou pulado em vez de erro, sem interromper o
+processamento dos demais itens.
+
+## Metadados do projeto
+
+- **Autor:** Rodrigo Zavan
+- **Proprietário:** ZSync Tech LTDA
+- **Requisito de Python:** ≥ 3.13
+
+## Desenvolvimento
+
+```bash
+uv sync
+uv run pytest
+uv run mypy --strict src
+uv run ruff check src tests
+uv run black src tests
 ```
