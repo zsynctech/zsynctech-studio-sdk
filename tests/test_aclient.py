@@ -18,7 +18,14 @@ from tests.factories import (
     make_secret_meta,
     make_task,
 )
-from zsyncstudio.async_api import Client, ExecutionRun, ExecutionStatus, SecretType, TaskStatus
+from zsyncstudio.async_api import (
+    Client,
+    ExecutionRun,
+    ExecutionStatus,
+    SecretStatus,
+    SecretType,
+    TaskStatus,
+)
 from zsyncstudio.exceptions import AuthenticationError, ConflictError
 from zsyncstudio.exceptions import ConnectionError as ZSyncConnectionError
 from zsyncstudio.models import Page, TaskCompletion
@@ -371,3 +378,79 @@ async def test_secret_rotate_delegates_to_client(
 
     assert meta.current_version == 2
     assert rotate_route.calls.last.request.content == b'{"value":"rotated-value"}'
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_get_secret_status_reports_blocked(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}").mock(
+        return_value=httpx.Response(
+            200, json=make_secret_meta(status="BLOCKED", statusReason="login rejeitado")
+        )
+    )
+
+    meta = await client.get_secret_status(SECRET_ID)
+
+    assert meta.status is SecretStatus.BLOCKED
+    assert meta.is_blocked
+    assert not meta.is_active
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_block_secret_sends_patch_with_reason(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    route = respx_mock.patch(f"{API_BASE_URL}/secrets/{SECRET_ID}/status").mock(
+        return_value=httpx.Response(200, json=make_secret_meta(status="BLOCKED"))
+    )
+
+    meta = await client.block_secret(SECRET_ID, "senha rejeitada pelo sistema alvo")
+
+    assert meta.status is SecretStatus.BLOCKED
+    assert route.calls.last.request.content == (
+        b'{"status":"BLOCKED","reason":"senha rejeitada pelo sistema alvo"}'
+    )
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_expire_secret_sends_patch_with_reason(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    respx_mock.patch(f"{API_BASE_URL}/secrets/{SECRET_ID}/status").mock(
+        return_value=httpx.Response(200, json=make_secret_meta(status="EXPIRED"))
+    )
+
+    meta = await client.expire_secret(SECRET_ID, "senha não é mais válida")
+
+    assert meta.status is SecretStatus.EXPIRED
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_secret_block_and_expire_delegate_to_client(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(200, json=make_reveal_secret())
+    )
+    block_route = respx_mock.patch(f"{API_BASE_URL}/secrets/{SECRET_ID}/status").mock(
+        return_value=httpx.Response(200, json=make_secret_meta(status="BLOCKED"))
+    )
+
+    secret = await client.get_secret(SECRET_ID)
+    meta = await secret.block("motivo")
+
+    assert meta.status is SecretStatus.BLOCKED
+    assert block_route.calls.last.request.content == b'{"status":"BLOCKED","reason":"motivo"}'
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_set_secret_status_conflict_raises_conflict_error(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    respx_mock.patch(f"{API_BASE_URL}/secrets/{SECRET_ID}/status").mock(
+        return_value=httpx.Response(409, json={"message": "já está em um estado restrito"})
+    )
+
+    with pytest.raises(ConflictError):
+        await client.block_secret(SECRET_ID, "motivo")

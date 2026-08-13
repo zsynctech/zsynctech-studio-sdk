@@ -101,17 +101,31 @@ password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo 
 ```
 
 Depois de trocar a senha no sistema de destino, registre o novo valor (isso
-cria uma nova versão, nunca sobrescreve a atual):
+cria uma nova versão, nunca sobrescreve a atual, e reativa a credencial se
+ela estava `EXPIRED`/`BLOCKED`):
 
 ```python
 secret.rotate("nova-senha")
 ```
 
-Credenciais expiradas bloqueiam `get_secret()` até alguém rotacionar o valor.
-Credenciais bloqueadas ("locked") pelo administrador bloqueiam `rotate()`.
-Criar, excluir, bloquear/desbloquear e ver o histórico de versões só estão
-disponíveis para administradores pelo painel — o token do robô só pode
-revelar e rotacionar.
+Uma credencial tem status `ACTIVE`, `EXPIRED` ou `BLOCKED` (além de
+`DELETED`, que já não aparece para o robô). `get_secret()` falha com
+`ValidationError` se ela não estiver `ACTIVE` — para checar antes de tentar,
+ou para o próprio robô sinalizar um problema (ex.: login rejeitado pelo
+sistema alvo), use:
+
+```python
+status = client.get_secret_status(secret_id)
+if status.is_blocked or status.is_expired:
+    ...  # avise alguém, ou apenas pule esta credencial
+
+secret.block("senha rejeitada pelo sistema X")   # ou secret.expire("...")
+```
+
+A única forma de tirar uma credencial de `EXPIRED`/`BLOCKED` é criar uma nova
+versão com `rotate()` — não existe um "desbloquear" manual. Criar, excluir e
+ver o histórico completo (versões e eventos de status) só estão disponíveis
+para administradores pelo painel.
 
 ## Uso assíncrono
 

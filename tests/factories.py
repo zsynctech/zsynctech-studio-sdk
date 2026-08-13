@@ -56,10 +56,10 @@ def make_secret_meta(**overrides: Any) -> dict[str, Any]:
         "name": "api-credential",
         "type": "TEXT",
         "expiresAt": None,
-        "expired": False,
         "currentVersion": 1,
         "status": "ACTIVE",
-        "lockedAt": None,
+        "statusReason": None,
+        "statusChangedAt": None,
         "createdAt": "2026-07-30T12:00:00.000Z",
         "updatedAt": "2026-07-30T12:00:00.000Z",
     }

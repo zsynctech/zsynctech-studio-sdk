@@ -144,7 +144,8 @@ class TaskSummary:
 class SecretMeta:
     """Metadados de uma credencial (secret) — nunca inclui o valor.
 
-    Retornado por `Client.rotate_secret()`. Para ler o valor, use
+    Retornado por `Client.get_secret_status()`, `Client.rotate_secret()`,
+    `Client.block_secret()` e `Client.expire_secret()`. Para ler o valor, use
     `Client.get_secret()`, que devolve um `Secret`.
     """
 
@@ -152,12 +153,25 @@ class SecretMeta:
     name: str
     type: SecretType
     expires_at: datetime | None
-    expired: bool
     current_version: int
     status: SecretStatus
-    locked_at: datetime | None
+    status_reason: str | None
+    status_changed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def is_active(self) -> bool:
+        """`True` se a credencial pode ser revelada agora (`status == ACTIVE`)."""
+        return self.status is SecretStatus.ACTIVE
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.status is SecretStatus.BLOCKED
+
+    @property
+    def is_expired(self) -> bool:
+        return self.status is SecretStatus.EXPIRED
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> SecretMeta:
@@ -166,10 +180,10 @@ class SecretMeta:
             name=data["name"],
             type=SecretType(data["type"]),
             expires_at=_parse_datetime(data.get("expiresAt")),
-            expired=data["expired"],
             current_version=data["currentVersion"],
             status=SecretStatus(data["status"]),
-            locked_at=_parse_datetime(data.get("lockedAt")),
+            status_reason=data.get("statusReason"),
+            status_changed_at=_parse_datetime(data.get("statusChangedAt")),
             created_at=_require_datetime(data["createdAt"]),
             updated_at=_require_datetime(data["updatedAt"]),
         )

@@ -38,7 +38,7 @@ client = Client(base_url, api_token)
 ```
 """
 
-__version__ = "1.3.21"
+__version__ = "1.3.22"
 
 __all__ = ["__version__", "main"]
 

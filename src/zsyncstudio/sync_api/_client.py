@@ -18,7 +18,13 @@ from .._http import (
     raise_for_status,
     resolve_api_base_url,
 )
-from ..enums import TERMINAL_EXECUTION_STATUSES, ExecutionStatus, SecretType, TaskStatus
+from ..enums import (
+    TERMINAL_EXECUTION_STATUSES,
+    ExecutionStatus,
+    SecretStatus,
+    SecretType,
+    TaskStatus,
+)
 from ..exceptions import ConnectionError as ZSyncConnectionError
 from ..exceptions import ServerError
 from ..models import Execution, Page, SecretMeta, Task, TaskCompletion, TaskSummary
@@ -408,8 +414,9 @@ class Client:
         """Revela (descriptografa) o valor de uma credencial.
 
         Sem `version`, revela a versão atual. Falha com `ValidationError` se a
-        credencial estiver expirada (rotacione com `secret.rotate(...)` antes
-        de revelar) ou com `NotFoundError` se ela (ou a versão) não existir.
+        credencial não estiver `ACTIVE` (`EXPIRED`/`BLOCKED` — rotacione com
+        `secret.rotate(...)` antes de revelar) ou com `NotFoundError` se ela
+        (ou a versão) não existir.
 
         ```python
         secret = client.get_secret(secret_id)
@@ -433,12 +440,48 @@ class Client:
 
         Nunca sobrescreve a versão atual — sempre cria a próxima. `value`
         precisa respeitar o tipo da credencial (texto, par chave-valor ou
-        JSON). Falha com `ConflictError` se a credencial estiver bloqueada.
+        JSON). Se a credencial estava `EXPIRED`/`BLOCKED`, esta chamada a
+        reativa (`status` volta para `ACTIVE`).
         """
         payload: dict[str, Any] = {"value": value}
         if expires_at is not None:
             payload["expiresAt"] = expires_at.isoformat()
         data = self._request("POST", f"/secrets/{secret_id}/versions", json=payload)
+        return SecretMeta.from_api(data)
+
+    def get_secret_status(self, secret_id: str) -> SecretMeta:
+        """Consulta o status atual de uma credencial sem revelar o valor.
+
+        Use antes de `get_secret(...)` para checar `meta.is_blocked` /
+        `meta.is_expired` e evitar um `ValidationError` desnecessário.
+        """
+        data = self._request("GET", f"/secrets/{secret_id}")
+        return SecretMeta.from_api(data)
+
+    def block_secret(self, secret_id: str, reason: str) -> SecretMeta:
+        """Marca a credencial como `BLOCKED` (ex.: login rejeitado pelo sistema alvo).
+
+        `reason` é obrigatório (até 100 caracteres) e fica registrado no
+        histórico de auditoria da credencial. Falha com `ConflictError` se ela
+        já não estiver `ACTIVE`. Não existe um "desbloquear" manual — a única
+        forma de reverter é criar uma nova versão com `rotate_secret(...)`.
+        """
+        return self._set_secret_status(secret_id, SecretStatus.BLOCKED, reason)
+
+    def expire_secret(self, secret_id: str, reason: str) -> SecretMeta:
+        """Marca a credencial como `EXPIRED` manualmente, com um motivo obrigatório.
+
+        Mesmo efeito da expiração automática por validade, mas disparado pelo
+        robô antes disso (ex.: detectou que a senha não é mais válida). Falha
+        com `ConflictError` se a credencial já não estiver `ACTIVE`. Reverte
+        apenas com `rotate_secret(...)`.
+        """
+        return self._set_secret_status(secret_id, SecretStatus.EXPIRED, reason)
+
+    def _set_secret_status(self, secret_id: str, status: SecretStatus, reason: str) -> SecretMeta:
+        data = self._request(
+            "PATCH", f"/secrets/{secret_id}/status", json={"status": status.value, "reason": reason}
+        )
         return SecretMeta.from_api(data)
 
 
@@ -607,3 +650,15 @@ class Secret:
         recém-rotacionado.
         """
         return self._client.rotate_secret(self.secret_id, value, expires_at=expires_at)
+
+    def block(self, reason: str) -> SecretMeta:
+        """Marca esta credencial como `BLOCKED`. Equivalente a
+        `client.block_secret(secret.secret_id, reason)`.
+        """
+        return self._client.block_secret(self.secret_id, reason)
+
+    def expire(self, reason: str) -> SecretMeta:
+        """Marca esta credencial como `EXPIRED`. Equivalente a
+        `client.expire_secret(secret.secret_id, reason)`.
+        """
+        return self._client.expire_secret(self.secret_id, reason)

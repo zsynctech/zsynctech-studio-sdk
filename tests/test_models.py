@@ -36,7 +36,10 @@ def test_secret_meta_from_api_parses_all_fields() -> None:
     assert meta.type is SecretType.KEY_VALUE
     assert meta.status is SecretStatus.ACTIVE
     assert meta.expires_at == datetime.fromisoformat("2027-01-01T00:00:00.000Z")
-    assert meta.locked_at is None
+    assert meta.status_reason is None
+    assert meta.is_active
+    assert not meta.is_blocked
+    assert not meta.is_expired
 
 
 def test_task_summary_from_api_handles_no_timed_tasks() -> None:

@@ -50,7 +50,14 @@ class SecretType(StrEnum):
 
 
 class SecretStatus(StrEnum):
-    """Status de uma credencial (secret)."""
+    """Status de uma credencial (secret).
+
+    A única forma de sair de `EXPIRED`/`BLOCKED` de volta para `ACTIVE` é
+    criar uma nova versão (`Client.rotate_secret()` / `secret.rotate()`) —
+    não existe um "desbloquear" manual.
+    """
 
     ACTIVE = "ACTIVE"
+    EXPIRED = "EXPIRED"
+    BLOCKED = "BLOCKED"
     DELETED = "DELETED"
