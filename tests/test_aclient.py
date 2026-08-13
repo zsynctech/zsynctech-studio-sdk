@@ -22,11 +22,9 @@ from zsyncstudio.async_api import (
     Client,
     ExecutionRun,
     ExecutionStatus,
-    SecretNotActiveError,
     SecretStatus,
     SecretType,
     TaskStatus,
-    ValidationError,
 )
 from zsyncstudio.exceptions import AuthenticationError, ConflictError
 from zsyncstudio.exceptions import ConnectionError as ZSyncConnectionError
@@ -351,7 +349,7 @@ async def test_get_secret_requests_specific_version(
 
 
 @pytest.mark.respx(assert_all_called=False)
-async def test_get_secret_raises_secret_not_active_error_when_expired(
+async def test_get_secret_returns_expired_secret_without_raising(
     respx_mock: respx.MockRouter, client: Client
 ) -> None:
     respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
@@ -361,19 +359,21 @@ async def test_get_secret_raises_secret_not_active_error_when_expired(
                 **make_error_body(400, "Credencial expirada", path=f"/secrets/{SECRET_ID}/reveal"),
                 "secretStatus": "EXPIRED",
                 "secretStatusReason": None,
+                "secretType": "TEXT",
+                "secretCurrentVersion": 1,
             },
         )
     )
 
-    with pytest.raises(SecretNotActiveError) as exc_info:
-        await client.get_secret(SECRET_ID)
+    secret = await client.get_secret(SECRET_ID)
 
-    error = exc_info.value
-    assert error.status is SecretStatus.EXPIRED
-    assert error.is_expired
-    assert not error.is_blocked
-    assert error.status_reason is None
-    assert isinstance(error, ValidationError)
+    assert secret.status is SecretStatus.EXPIRED
+    assert secret.is_expired
+    assert not secret.is_active
+    assert not secret.is_blocked
+    assert secret.status_reason is None
+    assert secret.value is None
+    assert secret.revealed_at is None
 
 
 @pytest.mark.respx(assert_all_called=False)

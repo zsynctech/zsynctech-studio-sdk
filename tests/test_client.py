@@ -492,7 +492,7 @@ def test_get_secret_parses_key_value_type(respx_mock: respx.MockRouter, client: 
 
 
 @pytest.mark.respx(assert_all_called=False)
-def test_get_secret_raises_secret_not_active_error_when_blocked(
+def test_get_secret_returns_blocked_secret_without_raising(
     respx_mock: respx.MockRouter, client: Client
 ) -> None:
     respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
@@ -502,18 +502,36 @@ def test_get_secret_raises_secret_not_active_error_when_blocked(
                 **make_error_body(400, "Credencial bloqueada", path=f"/secrets/{SECRET_ID}/reveal"),
                 "secretStatus": "BLOCKED",
                 "secretStatusReason": "login rejeitado",
+                "secretType": "TEXT",
+                "secretCurrentVersion": 2,
             },
         )
     )
 
-    with pytest.raises(SecretNotActiveError) as exc_info:
-        client.get_secret(SECRET_ID)
+    secret = client.get_secret(SECRET_ID)
 
-    error = exc_info.value
-    assert error.status is SecretStatus.BLOCKED
+    assert secret.status is SecretStatus.BLOCKED
+    assert secret.is_blocked
+    assert not secret.is_active
+    assert not secret.is_expired
+    assert secret.status_reason == "login rejeitado"
+    assert secret.value is None
+    assert secret.revealed_at is None
+    assert secret.type is SecretType.TEXT
+    assert secret.version_number == 2
+    assert secret.secret_id == SECRET_ID
+
+
+def test_secret_not_active_error_is_still_constructible_directly() -> None:
+    error = SecretNotActiveError(
+        400,
+        "Credencial bloqueada",
+        status=SecretStatus.BLOCKED,
+        status_reason="login rejeitado",
+    )
+
     assert error.is_blocked
     assert not error.is_expired
-    assert error.status_reason == "login rejeitado"
     assert isinstance(error, ValidationError)
 
 

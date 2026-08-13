@@ -100,6 +100,20 @@ secret = client.get_secret(secret_id)
 password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo da credencial
 ```
 
+Uma credencial tem status `ACTIVE`, `EXPIRED` ou `BLOCKED` (além de
+`DELETED`, que já não aparece para o robô). `get_secret()` **não lança** por
+causa do status — se a credencial não estiver `ACTIVE`, `secret.value` vem
+`None` e `secret.is_blocked`/`secret.is_expired` já vêm preenchidos, sem
+precisar de uma segunda chamada:
+
+```python
+secret = client.get_secret(secret_id)
+if secret.is_blocked or secret.is_expired:
+    ...  # avise alguém, ou pule esta credencial
+else:
+    password = secret.value
+```
+
 Depois de trocar a senha no sistema de destino, registre o novo valor (isso
 cria uma nova versão, nunca sobrescreve a atual, e reativa a credencial se
 ela estava `EXPIRED`/`BLOCKED`):
@@ -108,38 +122,18 @@ ela estava `EXPIRED`/`BLOCKED`):
 secret.rotate("nova-senha")
 ```
 
-Uma credencial tem status `ACTIVE`, `EXPIRED` ou `BLOCKED` (além de
-`DELETED`, que já não aparece para o robô). `get_secret()` falha com
-`SecretNotActiveError` se ela não estiver `ACTIVE` — a exceção já vem com
-`.status`/`.is_blocked`/`.is_expired`/`.status_reason` preenchidos, então não
-é preciso um `get_secret_status()` extra só para descobrir por quê:
+O próprio robô também pode sinalizar um problema (ex.: login rejeitado pelo
+sistema alvo) sem esperar a expiração automática:
 
 ```python
-from zsyncstudio.sync_api import SecretNotActiveError
-
-try:
-    secret = client.get_secret(secret_id)
-except SecretNotActiveError as exc:
-    if exc.is_blocked:
-        ...  # avise alguém, ou apenas pule esta credencial
-    raise
-```
-
-Para checar o status *antes* de tentar revelar, ou para o próprio robô
-sinalizar um problema (ex.: login rejeitado pelo sistema alvo), use:
-
-```python
-status = client.get_secret_status(secret_id)
-if status.is_blocked or status.is_expired:
-    ...  # avise alguém, ou apenas pule esta credencial
-
 secret.block("senha rejeitada pelo sistema X")   # ou secret.expire("...")
 ```
 
 A única forma de tirar uma credencial de `EXPIRED`/`BLOCKED` é criar uma nova
-versão com `rotate()` — não existe um "desbloquear" manual. Criar, excluir e
-ver o histórico completo (versões e eventos de status) só estão disponíveis
-para administradores pelo painel.
+versão com `rotate()` — não existe um "desbloquear" manual. `get_secret()`
+ainda falha com `NotFoundError` se a credencial (ou a versão) não existir.
+Criar, excluir e ver o histórico completo (versões e eventos de status) só
+estão disponíveis para administradores pelo painel.
 
 ## Uso assíncrono
 

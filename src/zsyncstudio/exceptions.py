@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .enums import SecretStatus
+from .enums import SecretStatus, SecretType
 
 
 class ZSyncStudioError(Exception):
@@ -57,11 +57,12 @@ class ValidationError(ApiError):
 
 
 class SecretNotActiveError(ValidationError):
-    """`get_secret()` recusado porque a credencial não está `ACTIVE`.
+    """Reveal recusado porque a credencial não está `ACTIVE`.
 
-    Carrega `status`/`status_reason` extraídos do corpo do erro, então não é
-    preciso um `get_secret_status()` extra só para descobrir se ela está
-    `EXPIRED` ou `BLOCKED` (e por quê) depois de um `get_secret()` que falhou.
+    Carrega `status`/`status_reason`/`secret_type`/`current_version`
+    extraídos do corpo do erro. `Client.get_secret()` captura esta exceção
+    internamente e devolve um `Secret` com esses campos em vez de propagá-la —
+    ela só chega até você se acessar a API mais diretamente.
     """
 
     def __init__(
@@ -71,6 +72,8 @@ class SecretNotActiveError(ValidationError):
         *,
         status: SecretStatus,
         status_reason: str | None,
+        secret_type: SecretType | None = None,
+        current_version: int | None = None,
         path: str | None = None,
         errors: list[str] | None = None,
         body: Any = None,
@@ -78,6 +81,8 @@ class SecretNotActiveError(ValidationError):
         super().__init__(status_code, message, path=path, errors=errors, body=body)
         self.status = status
         self.status_reason = status_reason
+        self.secret_type = secret_type
+        self.current_version = current_version
 
     @property
     def is_blocked(self) -> bool:
@@ -154,11 +159,14 @@ def build_api_error(status_code: int, body: Any) -> ApiError:
         message = str(body) if body else f"HTTP {status_code}"
 
     if isinstance(body, dict) and "secretStatus" in body:
+        raw_type = body.get("secretType")
         return SecretNotActiveError(
             status_code,
             message,
             status=SecretStatus(body["secretStatus"]),
             status_reason=body.get("secretStatusReason"),
+            secret_type=SecretType(raw_type) if raw_type else None,
+            current_version=body.get("secretCurrentVersion"),
             path=path,
             errors=errors,
             body=body,

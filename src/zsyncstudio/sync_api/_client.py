@@ -26,7 +26,7 @@ from ..enums import (
     TaskStatus,
 )
 from ..exceptions import ConnectionError as ZSyncConnectionError
-from ..exceptions import ServerError
+from ..exceptions import SecretNotActiveError, ServerError
 from ..models import Execution, Page, SecretMeta, Task, TaskCompletion, TaskSummary
 
 
@@ -413,19 +413,34 @@ class Client:
     def get_secret(self, secret_id: str, *, version: int | None = None) -> Secret:
         """Revela (descriptografa) o valor de uma credencial.
 
-        Sem `version`, revela a versão atual. Falha com `SecretNotActiveError`
-        (subclasse de `ValidationError`, com `.status`/`.is_blocked`/
-        `.is_expired`/`.status_reason` já preenchidos — sem precisar de um
-        `get_secret_status()` extra) se a credencial não estiver `ACTIVE`;
-        rotacione com `secret.rotate(...)` para reativá-la. Falha com
-        `NotFoundError` se ela (ou a versão) não existir.
+        Sem `version`, revela a versão atual. Se a credencial não estiver
+        `ACTIVE` (`EXPIRED`/`BLOCKED`), não lança — devolve um `Secret` com
+        `.value` em `None` e `.is_blocked`/`.is_expired` já preenchidos, sem
+        precisar de um `get_secret_status()` extra:
 
         ```python
         secret = client.get_secret(secret_id)
-        password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo da credencial
+        if secret.is_blocked or secret.is_expired:
+            ...  # avise alguém, ou pule esta credencial
+        else:
+            password = secret.value  # str, dict[str, str] ou dado JSON — depende do tipo
         ```
+
+        Falha com `NotFoundError` se a credencial (ou a versão) não existir.
         """
-        data = self._request("GET", f"/secrets/{secret_id}/reveal", params={"version": version})
+        try:
+            data = self._request("GET", f"/secrets/{secret_id}/reveal", params={"version": version})
+        except SecretNotActiveError as exc:
+            return Secret(
+                self,
+                secret_id=secret_id,
+                version_number=exc.current_version,
+                type=exc.secret_type,
+                value=None,
+                revealed_at=None,
+                status=exc.status,
+                status_reason=exc.status_reason,
+            )
         return Secret(
             self,
             secret_id=data["secretId"],
@@ -620,10 +635,13 @@ class TaskRun:
 
 
 class Secret:
-    """Credencial revelada por `Client.get_secret()` — o valor já vem descriptografado.
+    """Credencial obtida por `Client.get_secret()`.
 
-    `value` é `str` para credenciais do tipo `TEXT`, `dict[str, str]` para
-    `KEY_VALUE`, ou o dado JSON decodificado para `JSON`.
+    Quando `status` é `ACTIVE` (o padrão), `value` já vem descriptografado —
+    `str` para `TEXT`, `dict[str, str]` para `KEY_VALUE`, ou o dado JSON
+    decodificado para `JSON`. Quando a credencial está `EXPIRED`/`BLOCKED`,
+    `value`/`revealed_at` vêm `None` — confira `.is_blocked`/`.is_expired`
+    antes de usar `.value`.
     """
 
     def __init__(
@@ -631,10 +649,12 @@ class Secret:
         client: Client,
         *,
         secret_id: str,
-        version_number: int,
-        type: SecretType,
+        version_number: int | None,
+        type: SecretType | None,
         value: Any,
-        revealed_at: datetime,
+        revealed_at: datetime | None,
+        status: SecretStatus = SecretStatus.ACTIVE,
+        status_reason: str | None = None,
     ) -> None:
         self._client = client
         self.secret_id = secret_id
@@ -642,6 +662,20 @@ class Secret:
         self.type = type
         self.value = value
         self.revealed_at = revealed_at
+        self.status = status
+        self.status_reason = status_reason
+
+    @property
+    def is_active(self) -> bool:
+        return self.status is SecretStatus.ACTIVE
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.status is SecretStatus.BLOCKED
+
+    @property
+    def is_expired(self) -> bool:
+        return self.status is SecretStatus.EXPIRED
 
     def rotate(self, value: Any, *, expires_at: datetime | None = None) -> SecretMeta:
         """Cria uma nova versão desta credencial com o valor informado.
