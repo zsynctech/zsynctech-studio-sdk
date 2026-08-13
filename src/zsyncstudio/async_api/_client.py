@@ -397,10 +397,12 @@ class Client:
     async def get_secret(self, secret_id: str, *, version: int | None = None) -> Secret:
         """Revela (descriptografa) o valor de uma credencial.
 
-        Sem `version`, revela a versão atual. Falha com `ValidationError` se a
-        credencial não estiver `ACTIVE` (`EXPIRED`/`BLOCKED` — rotacione com
-        `secret.rotate(...)` antes de revelar) ou com `NotFoundError` se ela
-        (ou a versão) não existir.
+        Sem `version`, revela a versão atual. Falha com `SecretNotActiveError`
+        (subclasse de `ValidationError`, com `.status`/`.is_blocked`/
+        `.is_expired`/`.status_reason` já preenchidos — sem precisar de um
+        `get_secret_status()` extra) se a credencial não estiver `ACTIVE`;
+        rotacione com `secret.rotate(...)` para reativá-la. Falha com
+        `NotFoundError` se ela (ou a versão) não existir.
 
         ```python
         secret = await client.get_secret(secret_id)

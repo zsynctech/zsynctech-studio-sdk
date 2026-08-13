@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .enums import SecretStatus
+
 
 class ZSyncStudioError(Exception):
     """Classe base para todos os erros do SDK."""
@@ -52,6 +54,38 @@ class ApiError(ZSyncStudioError):
 
 class ValidationError(ApiError):
     """HTTP 400/422 — payload rejeitado pelo `ValidationPipe` do backend."""
+
+
+class SecretNotActiveError(ValidationError):
+    """`get_secret()` recusado porque a credencial não está `ACTIVE`.
+
+    Carrega `status`/`status_reason` extraídos do corpo do erro, então não é
+    preciso um `get_secret_status()` extra só para descobrir se ela está
+    `EXPIRED` ou `BLOCKED` (e por quê) depois de um `get_secret()` que falhou.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        *,
+        status: SecretStatus,
+        status_reason: str | None,
+        path: str | None = None,
+        errors: list[str] | None = None,
+        body: Any = None,
+    ) -> None:
+        super().__init__(status_code, message, path=path, errors=errors, body=body)
+        self.status = status
+        self.status_reason = status_reason
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.status is SecretStatus.BLOCKED
+
+    @property
+    def is_expired(self) -> bool:
+        return self.status is SecretStatus.EXPIRED
 
 
 class AuthenticationError(ApiError):
@@ -118,6 +152,17 @@ def build_api_error(status_code: int, body: Any) -> ApiError:
             message = "Erro desconhecido"
     else:
         message = str(body) if body else f"HTTP {status_code}"
+
+    if isinstance(body, dict) and "secretStatus" in body:
+        return SecretNotActiveError(
+            status_code,
+            message,
+            status=SecretStatus(body["secretStatus"]),
+            status_reason=body.get("secretStatusReason"),
+            path=path,
+            errors=errors,
+            body=body,
+        )
 
     exception_cls = _STATUS_TO_EXCEPTION.get(status_code)
     if exception_cls is None:

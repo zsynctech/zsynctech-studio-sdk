@@ -25,9 +25,11 @@ from zsyncstudio.sync_api import (
     Client,
     ExecutionRun,
     ExecutionStatus,
+    SecretNotActiveError,
     SecretStatus,
     SecretType,
     TaskStatus,
+    ValidationError,
 )
 
 
@@ -487,6 +489,32 @@ def test_get_secret_parses_key_value_type(respx_mock: respx.MockRouter, client: 
 
     assert secret.type is SecretType.KEY_VALUE
     assert secret.value == {"user": "bot", "password": "hunter2"}
+
+
+@pytest.mark.respx(assert_all_called=False)
+def test_get_secret_raises_secret_not_active_error_when_blocked(
+    respx_mock: respx.MockRouter, client: Client
+) -> None:
+    respx_mock.get(f"{API_BASE_URL}/secrets/{SECRET_ID}/reveal").mock(
+        return_value=httpx.Response(
+            400,
+            json={
+                **make_error_body(400, "Credencial bloqueada", path=f"/secrets/{SECRET_ID}/reveal"),
+                "secretStatus": "BLOCKED",
+                "secretStatusReason": "login rejeitado",
+            },
+        )
+    )
+
+    with pytest.raises(SecretNotActiveError) as exc_info:
+        client.get_secret(SECRET_ID)
+
+    error = exc_info.value
+    assert error.status is SecretStatus.BLOCKED
+    assert error.is_blocked
+    assert not error.is_expired
+    assert error.status_reason == "login rejeitado"
+    assert isinstance(error, ValidationError)
 
 
 @pytest.mark.respx(assert_all_called=False)

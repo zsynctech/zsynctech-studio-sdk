@@ -110,9 +110,23 @@ secret.rotate("nova-senha")
 
 Uma credencial tem status `ACTIVE`, `EXPIRED` ou `BLOCKED` (além de
 `DELETED`, que já não aparece para o robô). `get_secret()` falha com
-`ValidationError` se ela não estiver `ACTIVE` — para checar antes de tentar,
-ou para o próprio robô sinalizar um problema (ex.: login rejeitado pelo
-sistema alvo), use:
+`SecretNotActiveError` se ela não estiver `ACTIVE` — a exceção já vem com
+`.status`/`.is_blocked`/`.is_expired`/`.status_reason` preenchidos, então não
+é preciso um `get_secret_status()` extra só para descobrir por quê:
+
+```python
+from zsyncstudio.sync_api import SecretNotActiveError
+
+try:
+    secret = client.get_secret(secret_id)
+except SecretNotActiveError as exc:
+    if exc.is_blocked:
+        ...  # avise alguém, ou apenas pule esta credencial
+    raise
+```
+
+Para checar o status *antes* de tentar revelar, ou para o próprio robô
+sinalizar um problema (ex.: login rejeitado pelo sistema alvo), use:
 
 ```python
 status = client.get_secret_status(secret_id)
