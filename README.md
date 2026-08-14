@@ -54,7 +54,10 @@ def run(execution: ExecutionRun) -> None:
 
 if __name__ == "__main__":
     while execution := client.poll_pending_executions():
-        run(execution)
+        try:
+            run(execution)
+        except Exception as exc:
+            execution.error(str(exc))
 ```
 
 O robô fica esperando em `poll_pending_executions()` até a plataforma disparar
@@ -62,6 +65,14 @@ uma execução (pelo dashboard ou pela API). Cada `task(...)` representa um item
 processado; chame `finish()`, `warning()`, `error()` ou `skip()` para reportar
 o resultado. No fim, `finish()` marca a execução como concluída e `error()`
 como falha.
+
+**Sempre** envolva `run(execution)` num `try/except` no loop principal, sem
+relançar a exceção — se ela escapar do `while`, o robô inteiro para e não
+volta a escutar por novas execuções. `poll_pending_executions()` já tolera
+sozinho falhas transitórias de rede (`ConnectionError`) e erros 5xx da API
+(retenta em vez de propagar); o `try/except` do loop é para erros da sua
+própria lógica de processamento (`execution.start()` falhando porque a
+execução já foi reivindicada por outro processo, por exemplo).
 
 Para reportar progresso no meio de uma execução longa, sem finalizá-la:
 
@@ -158,7 +169,10 @@ async def run(execution: ExecutionRun) -> None:
 
 async def main() -> None:
     while execution := await client.poll_pending_executions():
-        await run(execution)
+        try:
+            await run(execution)
+        except Exception as exc:
+            await execution.error(str(exc))
 ```
 
 ## Tratamento de erros

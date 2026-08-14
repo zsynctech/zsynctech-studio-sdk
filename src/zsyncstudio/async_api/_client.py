@@ -156,13 +156,17 @@ class Client:
         novo, em vez de propagar — outros erros da API (401, 403, 404, 409,
         validação) propagam direto, já que repeti-los não resolveria nada.
 
+        Importante: capture os erros de `run(execution)` dentro do loop e
+        **não os relance** — uma exceção não capturada escapa do `while` e
+        derruba o robô inteiro, parando de escutar por novas execuções.
+        Marque a execução como falha e deixe o loop continuar:
+
         ```python
         while execution := await client.poll_pending_executions():
             try:
                 await run(execution)
             except Exception as exc:
                 await execution.error(str(exc))
-                raise
             else:
                 await (execution.error("...") if execution.had_errors else execution.finish())
         ```
