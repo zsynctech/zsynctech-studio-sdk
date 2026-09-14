@@ -1,0 +1,59 @@
+[project]
+name = "zsynctech-studio-sdk"
+version = "0.1.0"
+description = "Python SDK for connecting RPA robots to the ZsyncTech Studio platform"
+readme = "README.md"
+authors = [
+    { name = "Rodrigo Zavan", email = "rodrigo.zavan@zsynctech.com.br" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.13.5",
+    "python-socketio[client]>=5.16.4",
+]
+
+[project.scripts]
+zsynctech-studio-sdk = "zsynctech_studio_sdk:main"
+
+[build-system]
+requires = ["uv_build>=0.12.8,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.16.7",
+]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "socketio.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.black]
+line-length = 110
+target-version = ["py313"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/zsynctech_studio_sdk"]
