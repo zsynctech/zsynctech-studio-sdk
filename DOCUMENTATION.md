@@ -1,44 +1,44 @@
-# zsynctech-studio-sdk — Documentation
+# zsynctech-studio-sdk — Documentação
 
-Python SDK for connecting RPA robots to the ZsyncTech Studio platform. It wraps the platform's
-`/robot` Socket.IO protocol — connection handshake, automatic heartbeat, execution lifecycle,
-and the optional server-side task queue — behind a single, friendly `RobotClient`.
+SDK Python para conectar robôs RPA à plataforma ZsyncTech Studio. Ele encapsula o protocolo
+Socket.IO `/robot` da plataforma — handshake de conexão, heartbeat automático, ciclo de vida
+de execução, e a fila opcional de tasks do servidor — atrás de um único `RobotClient` amigável.
 
-- **Requires:** Python ≥ 3.13
-- **Package:** `zsynctech_studio_sdk`
-- **Dependencies:** `pydantic`, `python-socketio[client]`, `httpx`
+- **Requer:** Python ≥ 3.13
+- **Pacote:** `zsynctech_studio_sdk`
+- **Dependências:** `pydantic`, `python-socketio[client]`, `httpx`
 
-## Table of contents
+## Sumário
 
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Core concepts](#core-concepts)
-- [Reporting tasks](#reporting-tasks)
-- [Consuming the server-side queue](#consuming-the-server-side-queue)
-- [Error handling](#error-handling)
-- [API reference](#api-reference)
+- [Instalação](#instalação)
+- [Início rápido](#início-rápido)
+- [Conceitos principais](#conceitos-principais)
+- [Reportando tasks](#reportando-tasks)
+- [Consumindo a fila do servidor](#consumindo-a-fila-do-servidor)
+- [Tratamento de erros](#tratamento-de-erros)
+- [Referência da API](#referência-da-api)
   - [`RobotClient`](#robotclient)
   - [`TaskHandle`](#taskhandle)
   - [`RobotClientConfig`](#robotclientconfig)
-  - [Models](#models)
+  - [Modelos](#modelos)
   - [Enums](#enums)
-  - [Exceptions](#exceptions)
-- [REST fallback](#rest-fallback)
-- [Development](#development)
+  - [Exceções](#exceções)
+- [Fallback REST](#fallback-rest)
+- [Desenvolvimento](#desenvolvimento)
 
-## Install
+## Instalação
 
 ```bash
 uv add zsynctech-studio-sdk
 ```
 
-or with pip:
+ou com pip:
 
 ```bash
 pip install zsynctech-studio-sdk
 ```
 
-## Quick start
+## Início rápido
 
 ```python
 from zsynctech_studio_sdk import ExecutionFinishStatus, RobotClient
@@ -51,7 +51,7 @@ def run_automation() -> None:
     client.start_execution(total=100)
     try:
         with client.start_task(external_id="item-1"):
-            ...  # do the actual work — auto-reports success on a clean exit
+            ...  # faça o trabalho de verdade aqui — reporta sucesso automaticamente ao sair sem erro
         client.finish_execution()
     except Exception:
         client.finish_execution(status=ExecutionFinishStatus.FAILED)
@@ -62,39 +62,41 @@ with client:
     client.wait_forever()
 ```
 
-Run it, then trigger the robot from the Studio UI ("Iniciar automação") — `run_automation`
-fires in response to the platform's `automation:start` push.
+Rode o script e depois dispare o robô pela UI do Studio ("Iniciar automação") -
+`run_automation` é chamado em resposta ao evento `automation:start` enviado pela plataforma.
 
-## Core concepts
+## Conceitos principais
 
-**Connection.** `client.connect()` (or `with client:`) opens a Socket.IO connection to the
-platform's `/robot` namespace, authenticating with the robot's API key. On success the platform
-assigns this connection a unique **instance** — a robot (automation) can have several
-connected instances at once, up to its configured `maxConcurrency`, each independently
-receiving triggers.
+**Conexão.** `client.connect()` (ou `with client:`) abre uma conexão Socket.IO no namespace
+`/robot` da plataforma, autenticando com a API key do robô. Se der certo, a plataforma associa
+essa conexão a uma **instância** — um robô (automação) pode ter várias instâncias conectadas
+ao mesmo tempo, até o limite configurado em `maxConcurrency`, cada uma recebendo disparos de
+forma independente.
 
-**Heartbeat.** The platform enforces a fixed, non-configurable 30-second instance timeout. The
-SDK sends a `heartbeat` automatically every 10 seconds in the background from `connect()`
-until `disconnect()` — you never need to call it yourself.
+**Heartbeat.** A plataforma impõe um timeout de instância fixo de 30 segundos, não
+configurável. O SDK envia um `heartbeat` automaticamente a cada 10 segundos em segundo plano,
+de `connect()` até `disconnect()` - você nunca precisa chamar isso manualmente.
 
-**Instance identity.** Once connected, `client.instance_id` and `client.instance_code` expose
-this connection's server-assigned identity (e.g. `SDK-TEST-ROBOT-4F2A9C`). The instance code
-follows a readable `<SLUG-OF-ROBOT-NAME>-<RANDOM>` pattern and shows up in the platform's
-"Instâncias" tab for the robot.
+**Identidade da instância.** Uma vez conectado, `client.instance_id` e `client.instance_code`
+expõem a identidade dessa conexão, atribuída pelo servidor (ex: `SDK-TEST-ROBOT-4F2A9C`). O
+código da instância segue o padrão legível `<SLUG-DO-NOME-DO-ROBO>-<ALEATORIO>` e aparece na
+aba "Instâncias" do robô na plataforma.
 
-**Triggers.** When someone clicks "Iniciar automação" (or a schedule fires), the platform picks
-one idle connected instance and pushes it an `automation:start` event. Register a handler for
-this with `@client.on_start` (decorator) or `client.on_start(fn)`.
+**Disparos (triggers).** Quando alguém clica em "Iniciar automação" (ou um agendamento
+dispara), a plataforma escolhe uma instância conectada ociosa e envia um evento
+`automation:start` para ela. Registre um handler para isso com `@client.on_start` (decorator)
+ou `client.on_start(fn)`.
 
-**Executions.** One "run" of the automation is an *execution*: `start_execution()` opens it,
-any number of `start_task()` / `report_tasks()` calls report individual task outcomes against
-it, and `finish_execution()` closes it out. Exactly one execution is open at a time per
-`RobotClient` instance (tracked internally) — you may also pass an explicit `execution_id` to
-any of these methods if you're managing more than one concurrently.
+**Execuções.** Uma "rodada" da automação é uma *execução*: `start_execution()` abre uma,
+qualquer quantidade de chamadas a `start_task()` / `report_tasks()` reporta os resultados de
+tasks individuais contra ela, e `finish_execution()` a encerra. Exatamente uma execução fica
+aberta por vez por instância de `RobotClient` (controlado internamente) - você também pode
+passar um `execution_id` explícito para qualquer um desses métodos se estiver gerenciando mais
+de uma execução simultaneamente.
 
-## Reporting tasks
+## Reportando tasks
 
-The friendliest way to report a task's outcome is `start_task()`, which returns a
+A forma mais amigável de reportar o resultado de uma task é `start_task()`, que retorna um
 [`TaskHandle`](#taskhandle):
 
 ```python
@@ -106,17 +108,17 @@ except Exception as exc:
     task.error(message=str(exc))
 ```
 
-Or use it as a context manager — it reports automatically on exit (success on a clean exit,
-failure on an exception) unless the block already reported explicitly:
+Ou use como context manager - ele reporta automaticamente ao sair do bloco (sucesso se sair
+sem erro, falha se uma exceção estourar) a menos que o bloco já tenha reportado explicitamente:
 
 ```python
 with client.start_task(external_id="row-42") as task:
     ...
-    task.warning(message="needs review")  # optional — overrides the default success
+    task.warning(message="precisa de revisão")  # opcional — sobrescreve o sucesso padrão
 ```
 
-To report several tasks in one call (e.g. after processing a batch), build
-[`Task`](#models) instances directly and call `report_tasks`:
+Para reportar várias tasks em uma única chamada (ex: depois de processar um lote), monte
+instâncias de [`Task`](#modelos) diretamente e chame `report_tasks`:
 
 ```python
 from zsynctech_studio_sdk import Task, TaskStatus
@@ -127,35 +129,35 @@ client.report_tasks([
 ])
 ```
 
-> **Give every task a distinct `external_id`.** The platform treats a repeated `external_id`
-> within the same execution as a *retry* of that same task — it inserts a new row for each
-> report, but only counts the **net** effect (the latest status) toward the running
-> success/failure/warning totals. Reusing one `external_id` across genuinely different tasks
-> will make the visible counts look wrong even though every row was recorded.
+> **Dê um `external_id` distinto para cada task.** A plataforma trata um `external_id`
+> repetido dentro da mesma execução como uma *nova tentativa* daquela mesma task - ela insere
+> uma linha nova para cada report, mas só conta o efeito **líquido** (o status mais recente)
+> nos totais de sucesso/falha/aviso. Reaproveitar um `external_id` entre tasks genuinamente
+> diferentes vai fazer os totais aparecerem errados mesmo que cada linha tenha sido registrada.
 
-`report_tasks` is rate-limited server-side to 300 calls/second — batch multiple `Task`
-instances into one call rather than calling it once per task in a tight loop.
+`report_tasks` é limitado no servidor a 300 chamadas/segundo - agrupe várias instâncias de
+`Task` em uma única chamada em vez de chamar uma vez por task num loop apertado.
 
-## Consuming the server-side queue
+## Consumindo a fila do servidor
 
-For robots that pull work from a platform-managed queue instead of generating their own task
-list:
+Para robôs que consomem trabalho de uma fila gerenciada pela plataforma em vez de gerar sua
+própria lista de tasks:
 
 ```python
 with client:
     client.start_execution()
     while (task := client.claim_next_task()).has_task:
-        # ... process task.payload ...
+        # ... processe task.payload ...
         client.report_task_result(task.task_id, TaskStatus.SUCCESS)
     client.finish_execution()
 ```
 
-`claim_next_task()` requires an execution already opened via `start_execution()`. An empty
-queue is a normal outcome (`task.has_task` is `False`), not an error.
+`claim_next_task()` exige uma execução já aberta via `start_execution()`. Uma fila vazia é um
+resultado normal (`task.has_task` é `False`), não um erro.
 
-## Error handling
+## Tratamento de erros
 
-Every method that talks to the platform can raise a subclass of `SdkError`:
+Todo método que fala com a plataforma pode levantar uma subclasse de `SdkError`:
 
 ```python
 from zsynctech_studio_sdk import AuthenticationError, ConcurrencyLimitError, SdkError
@@ -163,16 +165,16 @@ from zsynctech_studio_sdk import AuthenticationError, ConcurrencyLimitError, Sdk
 try:
     client.connect()
 except ConcurrencyLimitError:
-    print("This robot is already at its maxConcurrency limit.")
+    print("Esse robô já atingiu o limite de maxConcurrency.")
 except AuthenticationError:
-    print("Invalid API key or inactive robot.")
+    print("API key inválida ou robô inativo.")
 except SdkError as exc:
-    print(f"Could not connect: {exc}")
+    print(f"Não foi possível conectar: {exc}")
 ```
 
-See [Exceptions](#exceptions) for the full hierarchy and when each is raised.
+Veja [Exceções](#exceções) para a hierarquia completa e quando cada uma é levantada.
 
-## API reference
+## Referência da API
 
 ### `RobotClient`
 
@@ -186,69 +188,69 @@ RobotClient(
 )
 ```
 
-Create either from a ready `RobotClientConfig` or its raw fields (`api_key` + `base_url`
-required; any other `RobotClientConfig` field — `hostname`, `version`, `platform`,
-`heartbeat_interval_seconds` — can be passed as a keyword argument too).
+Crie a partir de um `RobotClientConfig` já pronto ou de seus campos brutos (`api_key` +
+`base_url` obrigatórios; qualquer outro campo de `RobotClientConfig` - `hostname`, `version`,
+`platform`, `heartbeat_interval_seconds` - pode ser passado como argumento nomeado também).
 
-| Method / property | Description |
+| Método / propriedade | Descrição |
 | --- | --- |
-| `connect(timeout=10.0) -> ConnectResult` | Opens the connection, blocking until the platform confirms or rejects it. Raises `AuthenticationError` or `ConcurrencyLimitError`. |
-| `disconnect() -> None` | Stops the heartbeat loop and closes the connection. |
-| `with client: ...` | Context manager — `connect()` on enter, `disconnect()` on exit. |
-| `connected -> bool` | Whether the transport currently holds an open connection. |
-| `instance_id -> str` | This connection's server-assigned instance id. Requires `connect()` first. |
-| `instance_code -> str` | This connection's human-readable instance code. Requires `connect()` first. |
-| `on_start(callback) -> callback` | Registers the callback invoked when the platform pushes `automation:start`. Usable as a decorator. |
-| `set_status(status: RobotInstanceStatus) -> None` | Manually reports this instance's status. The SDK never does this automatically. |
-| `start_execution(total=None, observation=None) -> str` | Opens a new execution, remembers its id, returns it. |
-| `start_task(external_id=None, attempts=1) -> TaskHandle` | Opens a task against the current execution; returns a handle to report its outcome. See [Reporting tasks](#reporting-tasks). |
-| `report_tasks(tasks: Sequence[Task], execution_id=None) -> None` | Reports a batch of task outcomes. |
-| `finish_execution(status=ExecutionFinishStatus.COMPLETED, execution_id=None) -> ExecutionFinishResult` | Closes out the current (or given) execution. |
-| `claim_next_task(queue_id=None) -> ClaimedTask` | Claims the next pending task from the server-side queue, if any. |
-| `report_task_result(task_id, status, message=None, result=None) -> TaskResultAck` | Reports the outcome of a task previously handed out by `claim_next_task`. |
-| `wait_forever() -> None` | Blocks the calling thread until the connection closes or Ctrl+C is pressed. Ctrl+C stops this cleanly, letting a `with` block's `disconnect()` run afterward. |
+| `connect(timeout=10.0) -> ConnectResult` | Abre a conexão, bloqueando até a plataforma confirmar ou rejeitar. Levanta `AuthenticationError` ou `ConcurrencyLimitError`. |
+| `disconnect() -> None` | Para o loop de heartbeat e fecha a conexão. |
+| `with client: ...` | Context manager - `connect()` ao entrar, `disconnect()` ao sair. |
+| `connected -> bool` | Se o transporte atualmente mantém uma conexão aberta. |
+| `instance_id -> str` | O id de instância atribuído pelo servidor para esta conexão. Exige `connect()` antes. |
+| `instance_code -> str` | O código legível da instância para esta conexão. Exige `connect()` antes. |
+| `on_start(callback) -> callback` | Registra o callback chamado quando a plataforma envia `automation:start`. Pode ser usado como decorator. |
+| `set_status(status: RobotInstanceStatus) -> None` | Reporta manualmente o status desta instância. O SDK nunca faz isso automaticamente. |
+| `start_execution(total=None, observation=None) -> str` | Abre uma nova execução, guarda seu id, retorna o id. |
+| `start_task(external_id=None, attempts=1) -> TaskHandle` | Abre uma task contra a execução atual; retorna um handle para reportar seu resultado. Veja [Reportando tasks](#reportando-tasks). |
+| `report_tasks(tasks: Sequence[Task], execution_id=None) -> None` | Reporta um lote de resultados de tasks. |
+| `finish_execution(status=ExecutionFinishStatus.COMPLETED, execution_id=None) -> ExecutionFinishResult` | Encerra a execução atual (ou a indicada). |
+| `claim_next_task(queue_id=None) -> ClaimedTask` | Reivindica a próxima task pendente da fila do servidor, se houver. |
+| `report_task_result(task_id, status, message=None, result=None) -> TaskResultAck` | Reporta o resultado de uma task entregue anteriormente por `claim_next_task`. |
+| `wait_forever() -> None` | Bloqueia a thread chamadora até a conexão fechar ou Ctrl+C ser pressionado. Ctrl+C interrompe isso de forma limpa, deixando o `disconnect()` de um bloco `with` rodar em seguida. |
 
 ### `TaskHandle`
 
-Returned by `RobotClient.start_task()`. Captures `started_at` at creation.
+Retornado por `RobotClient.start_task()`. Captura `started_at` no momento da criação.
 
-| Method | Description |
+| Método | Descrição |
 | --- | --- |
-| `success(message=None, result=None) -> None` | Reports the task as `TaskStatus.SUCCESS`. |
-| `warning(message=None, result=None) -> None` | Reports the task as `TaskStatus.WARNING`. |
-| `error(message=None, result=None) -> None` | Reports the task as `TaskStatus.FAILURE`. |
-| `with task: ...` | Context manager — reports `success()` on a clean exit or `error()` on an exception, unless already reported explicitly inside the block. Never suppresses the exception. |
+| `success(message=None, result=None) -> None` | Reporta a task como `TaskStatus.SUCCESS`. |
+| `warning(message=None, result=None) -> None` | Reporta a task como `TaskStatus.WARNING`. |
+| `error(message=None, result=None) -> None` | Reporta a task como `TaskStatus.FAILURE`. |
+| `with task: ...` | Context manager - reporta `success()` ao sair sem erro ou `error()` se uma exceção estourar, a menos que já tenha reportado explicitamente dentro do bloco. Nunca suprime a exceção. |
 
-Calling a second reporting method (or exiting a `with` block after reporting explicitly inside
-it) is safe — only the first report is sent. Calling a reporting method twice *explicitly*
-raises `RuntimeError`.
+Chamar um segundo método de report (ou sair de um bloco `with` depois de já ter reportado
+explicitamente dentro dele) é seguro - só o primeiro report é enviado. Chamar um método de
+report duas vezes *explicitamente* levanta `RuntimeError`.
 
 ### `RobotClientConfig`
 
-Pydantic model backing `RobotClient`'s configuration.
+Modelo Pydantic por trás da configuração do `RobotClient`.
 
-| Field | Type | Default | Notes |
+| Campo | Tipo | Padrão | Observações |
 | --- | --- | --- | --- |
-| `api_key` | `str` | — | Required. The robot's API key. |
-| `base_url` | `str` | — | Required. Platform origin, e.g. `https://studio.zsynctech.com.br`. Trailing slash stripped automatically. |
-| `hostname` | `str` | local hostname | Reported at connect time. |
-| `version` | `str \| None` | `None` | Optional free-form version string for the robot script. |
-| `platform` | `MachineOsPlatform` | local OS family | Reported at connect time. |
-| `heartbeat_interval_seconds` | `float` | `10.0` | How often the SDK sends `heartbeat`. Override only for testing — the platform's own 30s timeout is fixed and not exposed here. |
+| `api_key` | `str` | — | Obrigatório. A API key do robô. |
+| `base_url` | `str` | — | Obrigatório. Origem da plataforma, ex: `https://studio.zsynctech.com.br`. A barra final é removida automaticamente. |
+| `hostname` | `str` | hostname local | Reportado no momento da conexão. |
+| `version` | `str \| None` | `None` | String de versão livre, opcional, para o script do robô. |
+| `platform` | `MachineOsPlatform` | família do SO local | Reportado no momento da conexão. |
+| `heartbeat_interval_seconds` | `float` | `10.0` | Com que frequência o SDK envia `heartbeat`. Altere só para testes - o timeout de 30s da própria plataforma é fixo e não é exposto aqui. |
 
-### Models
+### Modelos
 
-All data models live under `zsynctech_studio_sdk.models` (also re-exported from the package
-root).
+Todos os modelos de dados ficam em `zsynctech_studio_sdk.models` (também reexportados na raiz
+do pacote).
 
-- **`Task`** — one task outcome: `external_id`, `attempts` (≥1, default 1), `status`
+- **`Task`** — o resultado de uma task: `external_id`, `attempts` (≥1, padrão 1), `status`
   (`TaskStatus`), `message`, `payload` (dict), `result` (dict), `started_at`/`finished_at`
-  (ISO-8601 strings, default "now").
-- **`ConnectResult`** — returned by `connect()`: `id`, `name`, `max_concurrency`,
+  (strings ISO-8601, padrão "agora").
+- **`ConnectResult`** — retornado por `connect()`: `id`, `name`, `max_concurrency`,
   `instance_id`, `instance_code`.
 - **`ExecutionStartResult`** — `execution_id`.
 - **`ExecutionFinishResult`** — `execution_id`, `status`.
-- **`ClaimedTask`** — `task_id` (`None` if the queue is empty — check `.has_task`),
+- **`ClaimedTask`** — `task_id` (`None` se a fila estiver vazia - confira `.has_task`),
   `external_id`, `attempts`, `payload`.
 - **`TaskResultAck`** — `task_id`, `status`.
 
@@ -259,26 +261,27 @@ root).
 - **`ExecutionFinishStatus`** — `COMPLETED`, `FAILED`.
 - **`MachineOsPlatform`** — `WINDOWS`, `LINUX`, `DARWIN`, `OTHER`.
 
-### Exceptions
+### Exceções
 
-All exceptions inherit from `SdkError`.
+Todas as exceções herdam de `SdkError`.
 
-| Exception | Raised when |
+| Exceção | Quando é levantada |
 | --- | --- |
-| `AuthenticationError` | The API key is invalid, or the robot is inactive. |
-| `ConcurrencyLimitError` | This robot already has `max_concurrency` instances connected. |
-| `NotConnectedError` | An execution/queue/task method is called before `connect()`. |
-| `ExecutionError` | The platform rejects an `execution:*`/`queue:*` call (bad payload, no open execution, etc.), or the underlying call times out with no server-side error to report. |
+| `AuthenticationError` | A API key é inválida, ou o robô está inativo. |
+| `ConcurrencyLimitError` | Esse robô já tem `max_concurrency` instâncias conectadas. |
+| `NotConnectedError` | Um método de execução/fila/task é chamado antes de `connect()`. |
+| `ExecutionError` | A plataforma rejeita uma chamada `execution:*`/`queue:*` (payload inválido, nenhuma execução aberta, etc.), ou a chamada expira sem um erro do servidor para reportar. |
 
-## REST fallback
+## Fallback REST
 
-`zsynctech_studio_sdk.transport.RestTransport` covers connect/heartbeat/disconnect only, over
-plain HTTP (`POST {base_url}/v1/robot/{connect,heartbeat,disconnect}`) — for callers that
-explicitly want poll-only connect/heartbeat without holding a socket open. It cannot receive
-`automation:start` pushes and has no execution/queue endpoints, so prefer `RobotClient` (the
-Socket.IO path) unless you have a specific reason not to hold a persistent connection.
+`zsynctech_studio_sdk.transport.RestTransport` cobre apenas connect/heartbeat/disconnect, via
+HTTP puro (`POST {base_url}/v1/robot/{connect,heartbeat,disconnect}`) - para quem quer
+explicitamente connect/heartbeat via polling, sem manter um socket aberto. Ele não recebe
+disparos `automation:start` e não tem endpoints de execução/fila, então prefira o `RobotClient`
+(via Socket.IO) a menos que você tenha um motivo específico para não manter uma conexão
+persistente.
 
-## Development
+## Desenvolvimento
 
 ```bash
 uv sync
@@ -288,16 +291,16 @@ uv run ruff check src tests
 uv run black --check src tests
 ```
 
-Project layout:
+Estrutura do projeto:
 
 ```
 src/zsynctech_studio_sdk/
-  client.py              # RobotClient façade
+  client.py              # a façade RobotClient
   task_handle.py          # TaskHandle
-  exceptions.py            # SdkError hierarchy
-  models/                   # Pydantic models only
-  transport/                 # Socket.IO + REST transports
-  utils/                      # small reusable helpers (time, logging, system)
-tests/                         # mirrors the package layout, no real network
-examples/                       # runnable scripts against a real platform instance
+  exceptions.py             # hierarquia de SdkError
+  models/                    # somente modelos Pydantic
+  transport/                  # transportes Socket.IO + REST
+  utils/                        # pequenos helpers reutilizáveis (time, logging, system)
+tests/                           # espelha a estrutura do pacote, sem rede real
+examples/                         # scripts executáveis contra uma plataforma real
 ```
