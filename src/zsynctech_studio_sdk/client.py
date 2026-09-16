@@ -80,8 +80,7 @@ class RobotClient:
         closes or the user presses Ctrl+C.
 
         `automation:start` handlers keep firing on background threads while blocked here -
-        this just keeps the main thread (and the process) alive to host them, the same role
-        the bottom of `simulate-robot.js` plays.
+        this just keeps the main thread (and the process) alive to host them.
         """
         logger.info("Aguardando eventos da plataforma (Ctrl+C para encerrar)...")
         try:

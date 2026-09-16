@@ -1,9 +1,8 @@
 # zsynctech-studio-sdk
 
-SDK Python para conectar robôs (RPA) à plataforma **zsynctech-studio** via Socket.IO
-(namespace `/robot`) - handshake, heartbeat, ciclo de execução, consumo de fila e acesso ao
-cofre de credenciais, com o mesmo protocolo que o robô real e o simulador em Node.js
-(`simulate-robot.js`) usam.
+SDK Python oficial para conectar robôs de RPA à plataforma **zsynctech-studio**: handshake,
+heartbeat, ciclo de execução, consumo de fila e acesso ao cofre de credenciais, tudo via
+Socket.IO (namespace `/robot`).
 
 ## Instalação
 
@@ -16,9 +15,8 @@ uv sync
 ## Uso rápido
 
 `client.on_automation_start` registra o que rodar quando a plataforma disparar o botão
-"Iniciar" para esse robô. `client.listen()` mantém o processo vivo aguardando esse
-evento (Ctrl+C encerra a conexão de forma limpa) - é o mesmo papel que o final de
-`simulate-robot.js` cumpre.
+"Iniciar" para esse robô. `client.listen()` mantém o processo vivo aguardando esse evento,
+até a conexão encerrar ou você pressionar Ctrl+C.
 
 Há duas formas de reportar trabalho, dependendo de onde a lista de tasks vem:
 
@@ -87,9 +85,9 @@ with client:
 
 Exemplos completos em [`examples/`](examples/):
 
-- [`simulate_robot.py`](examples/simulate_robot.py) - equivalente ao simulador em Node.js,
-  consumindo tasks de uma fila da plataforma (`client.queue.consume()`); também demonstra
-  `client.credentials.reveal()` logo após conectar.
+- [`simulate_robot.py`](examples/simulate_robot.py) - robô completo consumindo tasks de uma
+  fila da plataforma (`client.queue.consume()`); também demonstra `client.credentials.reveal()`
+  logo após conectar.
 - [`own_tasks_robot.py`](examples/own_tasks_robot.py) - robô que processa a própria fonte de
   dados (planilha, API interna, etc.) e reporta os resultados direto na execução
   (`client.execution.report_tasks()`), sem usar fila.

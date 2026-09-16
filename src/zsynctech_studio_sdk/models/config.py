@@ -12,8 +12,8 @@ from .enums import Platform
 class RobotClientConfig(SdkBaseModel):
     """Everything `RobotClient` needs to open and maintain a `/robot` connection.
 
-    Only `api_key` is required - every other field has a sensible default, matching what
-    `simulate-robot.js` falls back to (own hostname, `os.platform()`, a 15s heartbeat).
+    Only `api_key` is required - every other field has a sensible default (own hostname,
+    the detected OS platform, a 15s heartbeat).
     """
 
     model_config = ConfigDict(frozen=True)

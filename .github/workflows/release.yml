@@ -12,6 +12,13 @@ name: Release
 # job's tag push) never triggers another workflow run, so a separate tag-triggered workflow
 # would simply never fire after an automated bump. Keeping every job in one run sidesteps that
 # entirely - see https://docs.github.com/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow.
+#
+# Every job past `bump` needs `if: ${{ !failure() && !cancelled() }}`, even ones that don't
+# depend on `bump` directly (like `publish`, which only needs `build`). GitHub's default `if`
+# (success()) treats a skip anywhere upstream in the chain as a failure and skips the whole
+# rest of the graph - see https://github.com/orgs/community/discussions/45058. On the tag-push
+# path `bump` is always skipped by design, so without this override nothing downstream of it
+# would ever run.
 on:
   push:
     tags:
@@ -116,6 +123,7 @@ jobs:
 
   publish:
     needs: [build]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
