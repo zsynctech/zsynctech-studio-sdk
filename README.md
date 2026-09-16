@@ -16,7 +16,7 @@ uv sync
 ## Uso rápido
 
 `client.on_automation_start` registra o que rodar quando a plataforma disparar o botão
-"Iniciar" para esse robô. `client.run_forever()` mantém o processo vivo aguardando esse
+"Iniciar" para esse robô. `client.listen()` mantém o processo vivo aguardando esse
 evento (Ctrl+C encerra a conexão de forma limpa) - é o mesmo papel que o final de
 `simulate-robot.js` cumpre.
 
@@ -44,7 +44,7 @@ def handle_automation() -> None:
                 outcome.success(result=resultado)
 
 with client:
-    client.run_forever()
+    client.listen()
 ```
 
 ### Sem fila: robô que processa a própria fonte de dados
@@ -82,7 +82,7 @@ def handle_automation() -> None:
             ])
 
 with client:
-    client.run_forever()
+    client.listen()
 ```
 
 Exemplos completos em [`examples/`](examples/):

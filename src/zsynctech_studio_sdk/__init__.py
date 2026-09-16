@@ -14,7 +14,7 @@ Uso rápido:
                     outcome.success(result={"ok": True})
 
     with client:
-        client.run_forever()
+        client.listen()
 
 O cofre de credenciais é acessado à parte, via REST (não precisa de conexão aberta):
 

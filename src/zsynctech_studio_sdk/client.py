@@ -16,7 +16,7 @@ so a robot script only ever talks to this class:
                     outcome.success(result=resultado)
 
     with client:
-        client.run_forever()
+        client.listen()
 """
 
 from __future__ import annotations
@@ -75,8 +75,9 @@ class RobotClient:
         """Manually report this instance's status (ONLINE/BUSY) to the platform."""
         return self._connection.set_status(status)
 
-    def run_forever(self) -> None:
-        """Block until the connection closes or the user presses Ctrl+C.
+    def listen(self) -> None:
+        """Block, waiting for the platform to trigger `automation:start`, until the connection
+        closes or the user presses Ctrl+C.
 
         `automation:start` handlers keep firing on background threads while blocked here -
         this just keeps the main thread (and the process) alive to host them, the same role

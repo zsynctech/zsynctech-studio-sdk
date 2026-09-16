@@ -115,7 +115,7 @@ def main() -> None:
         log_credential(client)
         if os.environ.get("AUTO_START") == "1":
             run_automation(client)
-        client.run_forever()
+        client.listen()
 
 
 if __name__ == "__main__":
