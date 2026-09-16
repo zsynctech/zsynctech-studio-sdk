@@ -684,7 +684,7 @@ wheels = [
 
 [[package]]
 name = "zsynctech-studio-sdk"
-version = "1.4.3"
+version = "1.4.4"
 source = { editable = "." }
 dependencies = [
     { name = "loguru" },
