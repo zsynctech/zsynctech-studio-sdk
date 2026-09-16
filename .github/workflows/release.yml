@@ -1,0 +1,156 @@
+name: Release
+
+# Two ways in:
+#   1. workflow_dispatch, picking a version bump - bumps pyproject.toml, commits, tags and
+#      pushes, then builds/publishes/releases that new tag. This is the normal "cut a release"
+#      button.
+#   2. push of a version tag (v1.2.3, ...) - if someone tags a commit by hand instead, this
+#      builds/publishes/releases that tag directly, skipping the bump step.
+#
+# Both paths converge into the same build -> publish -> github-release pipeline, all inside one
+# workflow run. That's deliberate: a push made with the default GITHUB_TOKEN (like the bump
+# job's tag push) never triggers another workflow run, so a separate tag-triggered workflow
+# would simply never fire after an automated bump. Keeping every job in one run sidesteps that
+# entirely - see https://docs.github.com/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Parte da versão a incrementar (none = republicar a versão atual)"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - none
+
+jobs:
+  bump:
+    if: github.event_name == 'workflow_dispatch' && inputs.bump != 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Bump version, commit and tag
+        id: bump
+        run: |
+          set -euo pipefail
+          uv version --bump "${{ inputs.bump }}"
+          NEW_VERSION="$(uv version --short)"
+          TAG="v${NEW_VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml uv.lock
+          git commit -m "Bump version to ${TAG}"
+          git tag "${TAG}"
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "${TAG}"
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [bump]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Verify the tag matches the project version
+        run: |
+          set -euo pipefail
+          REF="${{ needs.bump.outputs.tag || github.ref_name }}"
+          TAG_VERSION="${REF#v}"
+          PROJECT_VERSION="$(uv version --short)"
+          if [ "${TAG_VERSION}" != "${PROJECT_VERSION}" ]; then
+            echo "::error::Tag ${REF} does not match the pyproject.toml version (${PROJECT_VERSION})"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint, type-check and test
+        run: |
+          uv run ruff check .
+          uv run mypy src examples tests
+          uv run pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/zsynctech-studio-sdk/
+    permissions:
+      id-token: write # required for PyPI trusted publishing - see https://docs.pypi.org/trusted-publishers/
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always
+
+  github-release:
+    needs: [bump, build, publish]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REF="${{ needs.bump.outputs.tag || github.ref_name }}"
+          gh release create "${REF}" dist/* --repo "${{ github.repository }}" --generate-notes

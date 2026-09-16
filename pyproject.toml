@@ -1,0 +1,49 @@
+[project]
+name = "zsynctech-studio-sdk"
+version = "0.1.0"
+description = "SDK Python para conectar robôs (RPA) à plataforma zsynctech-studio via Socket.IO"
+readme = "README.md"
+authors = [
+    { name = "Rodrigo Zavan", email = "rodrigo.zavan@zsynctech.com.br" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "loguru>=0.7",
+    "pydantic>=2.9",
+    "python-socketio[client]>=5.11",
+    "requests>=2.31",
+]
+
+[project.scripts]
+zsynctech-studio-sdk = "zsynctech_studio_sdk:main"
+
+[build-system]
+requires = ["uv_build>=0.12.8,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "types-requests>=2.31",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "socketio.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
