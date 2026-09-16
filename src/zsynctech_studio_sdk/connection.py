@@ -65,9 +65,16 @@ class SocketConnection:
 
     def _on_error(self, payload: dict[str, Any] | None) -> None:
         message = (payload or {}).get("message", "Erro desconhecido retornado pelo servidor")
-        self._handshake_error = message
-        logger.error("Servidor rejeitou a conexão: {}", message)
-        self._connected_event.set()
+        if self._connection_info is None:
+            # Handshake still in flight - connect() is blocked waiting on _connected_event.
+            self._handshake_error = message
+            logger.error("Servidor rejeitou a conexão: {}", message)
+            self._connected_event.set()
+        else:
+            # Already connected - the platform is reporting a problem with the live session
+            # (e.g. this robot's api key was just regenerated). A disconnect from the server
+            # normally follows right after, logged separately by _on_disconnect.
+            logger.warning("Erro reportado pela plataforma: {}", message)
 
     def _on_exception(self, payload: Any) -> None:
         logger.error("Exceção recebida do servidor: {}", payload)
