@@ -4,14 +4,6 @@ SDK Python oficial para conectar robôs de RPA à plataforma **zsynctech-studio*
 heartbeat, ciclo de execução, consumo de fila e acesso ao cofre de credenciais, tudo via
 Socket.IO (namespace `/robot`).
 
-## Instalação
-
-Projeto gerenciado com [uv](https://docs.astral.sh/uv/).
-
-```bash
-uv sync
-```
-
 ## Uso rápido
 
 `client.on_automation_start` registra o que rodar quando a plataforma disparar o botão
