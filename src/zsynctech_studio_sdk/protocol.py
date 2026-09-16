@@ -33,6 +33,7 @@ class ClientEvent:
     STATUS = "status"
     EXECUTION_START = "execution:start"
     EXECUTION_TASK = "execution:task"
+    EXECUTION_OBSERVATION = "execution:observation"
     EXECUTION_FINISH = "execution:finish"
     QUEUE_NEXT = "queue:next"
     QUEUE_TASK_RESULT = "queue:task-result"

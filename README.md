@@ -84,6 +84,29 @@ Exemplos completos em [`examples/`](examples/):
   dados (planilha, API interna, etc.) e reporta os resultados direto na execução
   (`client.execution.report_tasks()`), sem usar fila.
 
+### Observação da execução
+
+`observation` descreve o que está acontecendo numa execução - visível na plataforma. Dá pra
+atualizá-la quantas vezes quiser enquanto a execução está rodando, e sobrescrevê-la no
+`finish()` com o resultado final. `execution.run()` (o atalho com `with`) sempre finaliza com a
+`observation` original, então esse controle mais fino pede o par `start()`/`finish()` manual:
+
+```python
+client.execution.start(observation="Boletagem VCOM")
+try:
+    tasks = list(client.queue.consume())
+    if not tasks:
+        client.execution.finish(observation="Fila vazia, nada a processar")
+    else:
+        for i, task in enumerate(tasks, start=1):
+            client.execution.update_observation(f"Processando {i}/{len(tasks)}")
+            ...
+        client.execution.finish()
+except Exception:
+    client.execution.finish(ExecutionFinishStatus.FAILED)
+    raise
+```
+
 ## Credenciais
 
 O cofre de credenciais é acessado via REST (`/robot/credentials`), sem precisar de uma conexão

@@ -62,17 +62,38 @@ class ExecutionManager:
         self._connection.emit(ClientEvent.EXECUTION_TASK, payload)
         logger.debug("{} task(s) reportada(s) na execução {}", len(tasks), self._execution_id)
 
-    def finish(self, status: ExecutionFinishStatus = ExecutionFinishStatus.COMPLETED) -> ExecutionFinishResult:
-        """Close the current execution with `status`."""
+    def finish(
+        self,
+        status: ExecutionFinishStatus = ExecutionFinishStatus.COMPLETED,
+        *,
+        observation: str | None = None,
+    ) -> ExecutionFinishResult:
+        """Close the current execution with `status`.
+
+        `observation` replaces the one set in `start()`, e.g. to record the actual outcome
+        ("fila vazia, nada a processar") instead of a generic description picked before any
+        work happened.
+        """
         self._require_execution()
-        response = self._connection.call(
-            ClientEvent.EXECUTION_FINISH,
-            {"executionId": self._execution_id, "status": status.value},
-        )
+        payload: dict[str, object] = {"executionId": self._execution_id, "status": status.value}
+        if observation is not None:
+            payload["observation"] = observation
+        response = self._connection.call(ClientEvent.EXECUTION_FINISH, payload)
         result = ExecutionFinishResult.model_validate(response)
         logger.info("Execução {} finalizada com status {}", result.execution_id, result.status.value)
         self._execution_id = None
         return result
+
+    def update_observation(self, observation: str) -> None:
+        """Update the current execution's observation without finishing it - use to narrate
+        progress ("processando 3/50") as the execution goes along. Can be called as many
+        times as needed."""
+        self._require_execution()
+        self._connection.call(
+            ClientEvent.EXECUTION_OBSERVATION,
+            {"executionId": self._execution_id, "observation": observation},
+        )
+        logger.debug("Observação da execução {} atualizada: {}", self._execution_id, observation)
 
     def _require_execution(self) -> None:
         if not self.is_running:
