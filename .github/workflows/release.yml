@@ -100,7 +100,8 @@ jobs:
 
       - name: Lint, type-check and test
         run: |
-          uv run ruff check .
+          uv run ruff check src examples tests
+          uv run ruff format --check src examples tests
           uv run mypy src examples tests
           uv run pytest -q
 

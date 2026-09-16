@@ -24,10 +24,10 @@ jobs:
         run: uv sync --locked
 
       - name: Lint (ruff check)
-        run: uv run ruff check .
+        run: uv run ruff check src examples tests
 
       - name: Format check (ruff format)
-        run: uv run ruff format --check .
+        run: uv run ruff format --check src examples tests
 
       - name: Type check (mypy --strict)
         run: uv run mypy src examples tests

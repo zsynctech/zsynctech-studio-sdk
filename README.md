@@ -155,8 +155,13 @@ Chame antes de criar o `RobotClient`.
 ## Desenvolvimento
 
 ```bash
-uv run pytest        # testes
-uv run ruff check .  # lint
-uv run ruff format .  # formatação
-uv run mypy src examples tests  # checagem de tipos (modo strict)
+uv run pytest                          # testes
+uv run ruff check src examples tests   # lint
+uv run ruff format src examples tests  # formatação
+uv run mypy src examples tests         # checagem de tipos (modo strict)
 ```
+
+`ruff` e `mypy` só olham `src`/`examples`/`tests` (não o README) - a partir do ruff 0.12+ o
+`ruff format` também reformata blocos de código Python dentro de Markdown, o que reescreveria
+os exemplos deste arquivo com as convenções de um `.py` (2 linhas em branco antes de decorators
+etc.) toda vez que rodasse. CI usa esse mesmo escopo (veja `.github/workflows/ci.yml`).
