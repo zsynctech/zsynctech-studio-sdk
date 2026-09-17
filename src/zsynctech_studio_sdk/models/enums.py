@@ -87,11 +87,12 @@ class CredentialStatus(StrEnum):
     """Lifecycle status of a credential. Mirrors `CredentialStatus`.
 
     ACTIVE/DELETED are read-only outcomes the platform itself controls; a robot can only ever
-    report EXPIRED or BLOCKED (see `CredentialManager.set_status`), mirroring the
-    `RobotCredentialStatusRequestDto` restriction on the backend.
+    report EXPIRED (see `CredentialManager.expire`/`set_status`), mirroring the
+    `RobotCredentialStatusRequestDto` restriction on the backend. BLOCKED was retired as a
+    settable status - it may still appear on old credentials revealed from the platform, but
+    nothing can report it anymore, so it's not a member of this enum.
     """
 
     ACTIVE = "ACTIVE"
     EXPIRED = "EXPIRED"
-    BLOCKED = "BLOCKED"
     DELETED = "DELETED"

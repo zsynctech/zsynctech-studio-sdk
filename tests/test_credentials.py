@@ -79,19 +79,19 @@ def test_rotate_sends_value_and_optional_expires_at() -> None:
     assert result.current_version == 2
 
 
-def test_block_sets_status_blocked_with_reason() -> None:
+def test_expire_sets_status_expired_with_reason() -> None:
     manager = CredentialManager(CONFIG)
     mock_response = _mock_response(CREDENTIAL_INFO_PAYLOAD)
 
     with patch.object(manager._session, "request", return_value=mock_response) as mock_request:
-        manager.block("cred-1", "Login rejeitado pelo site do fornecedor")
+        manager.expire("cred-1", "Login rejeitado pelo site do fornecedor")
 
     called_method, called_url = mock_request.call_args.args
     assert called_method == "PATCH"
     assert called_url.endswith("/cred-1/status")
     assert mock_request.call_args.kwargs["json"] == {
         "apiKey": "abc123",
-        "status": CredentialStatus.BLOCKED.value,
+        "status": CredentialStatus.EXPIRED.value,
         "reason": "Login rejeitado pelo site do fornecedor",
     }
 

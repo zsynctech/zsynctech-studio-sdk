@@ -118,8 +118,7 @@ print(credencial.value)  # str (TEXT), dict[str, str] (KEY_VALUE) ou JSON (JSON)
 
 client.credentials.rotate("<credential-id>", "novo-valor")
 
-client.credentials.block("<credential-id>", "Login rejeitado pelo site do fornecedor")
-client.credentials.expire("<credential-id>", "Senha expirou no portal do fornecedor")
+client.credentials.expire("<credential-id>", "Login rejeitado pelo site do fornecedor")
 ```
 
 Veja `log_credential()` em [`examples/simulate_robot.py`](examples/simulate_robot.py) para um

@@ -20,7 +20,7 @@ from .models.enums import CredentialStatus
 from .protocol import CREDENTIALS_PATH
 from .utils import ensure_iso
 
-ReportableCredentialStatus = Literal[CredentialStatus.EXPIRED, CredentialStatus.BLOCKED]
+ReportableCredentialStatus = Literal[CredentialStatus.EXPIRED]
 
 
 class CredentialManager:
@@ -49,13 +49,9 @@ class CredentialManager:
         return CredentialInfo.model_validate(response)
 
     def set_status(self, credential_id: str, status: ReportableCredentialStatus, reason: str) -> CredentialInfo:
-        """Report that a credential should be marked EXPIRED or BLOCKED, with a reason."""
+        """Report that a credential should be marked EXPIRED, with a reason."""
         response = self._patch(f"/{credential_id}/status", {"status": status.value, "reason": reason})
         return CredentialInfo.model_validate(response)
-
-    def block(self, credential_id: str, reason: str) -> CredentialInfo:
-        """Convenience for `set_status(credential_id, CredentialStatus.BLOCKED, reason)`."""
-        return self.set_status(credential_id, CredentialStatus.BLOCKED, reason)
 
     def expire(self, credential_id: str, reason: str) -> CredentialInfo:
         """Convenience for `set_status(credential_id, CredentialStatus.EXPIRED, reason)`."""
