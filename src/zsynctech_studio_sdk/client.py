@@ -77,10 +77,12 @@ class RobotClient:
 
     def listen(self) -> None:
         """Block, waiting for the platform to trigger `automation:start`, until the connection
-        closes or the user presses Ctrl+C.
+        closes for good or the user presses Ctrl+C.
 
         `automation:start` handlers keep firing on background threads while blocked here -
-        this just keeps the main thread (and the process) alive to host them.
+        this just keeps the main thread (and the process) alive to host them. A dropped
+        connection (e.g. the API restarting) does not return from this call - the SDK keeps
+        reconnecting automatically in the background for as long as it's able to.
         """
         logger.info("Aguardando eventos da plataforma (Ctrl+C para encerrar)...")
         try:

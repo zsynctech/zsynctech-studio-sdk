@@ -40,6 +40,7 @@ class SocketConnection:
         )
         self._connection_info: RobotConnection | None = None
         self._connected_event = threading.Event()
+        self._stopped_event = threading.Event()
         self._handshake_error: str | None = None
         self._automation_start_handlers: list[AutomationStartHandler] = []
         self._register_handlers()
@@ -51,6 +52,13 @@ class SocketConnection:
         self._sio.on(ServerEvent.AUTOMATION_START, self._on_automation_start, namespace=NAMESPACE)
         self._sio.on(ServerEvent.DISCONNECT, self._on_disconnect, namespace=NAMESPACE)
         self._sio.on(ServerEvent.CONNECT_ERROR, self._on_connect_error, namespace=NAMESPACE)
+        # Internal python-socketio event, fired once reconnection has definitively ended: the
+        # server sent an explicit disconnect (bad api key, concurrency limit, kicked), disconnect()
+        # was called, or (with a finite reconnection_attempts) every retry failed. Unlike the public
+        # `disconnect` event above, it never fires for a transient drop the client is about to
+        # retry - see wait() below, which relies on that distinction to stay blocked through an
+        # API restart instead of giving up on the first dropped socket.
+        self._sio.on("__disconnect_final", self._on_disconnect_final, namespace=NAMESPACE)
 
     # -- server -> robot event handlers -----------------------------------------------------
 
@@ -61,6 +69,10 @@ class SocketConnection:
             self._connection_info.name,
             self._connection_info.instance_code,
         )
+        # Started here (once per successful handshake) rather than only from connect(), so an
+        # automatic reconnection after an API restart gets a fresh heartbeat loop too - the one
+        # from the previous connection already exited when its socket dropped.
+        self._sio.start_background_task(self._heartbeat_loop)
         self._connected_event.set()
 
     def _on_error(self, payload: dict[str, Any] | None) -> None:
@@ -91,11 +103,15 @@ class SocketConnection:
             logger.exception("Handler de automation:start levantou uma exceção não tratada")
 
     def _on_disconnect(self, *_args: Any) -> None:
-        logger.warning("Desconectado da plataforma")
+        logger.warning("Desconectado da plataforma - tentando reconectar automaticamente...")
         self._connection_info = None
 
     def _on_connect_error(self, data: Any = None) -> None:
         logger.error("Falha ao conectar: {}", data)
+
+    def _on_disconnect_final(self, *_args: Any) -> None:
+        logger.error("Conexão encerrada definitivamente (sem novas tentativas de reconexão)")
+        self._stopped_event.set()
 
     # -- lifecycle ----------------------------------------------------------------------------
 
@@ -103,6 +119,7 @@ class SocketConnection:
         """Perform the handshake and block until the server confirms via `connected`."""
         self._handshake_error = None
         self._connected_event.clear()
+        self._stopped_event.clear()
         auth = {
             "apiKey": self._config.api_key,
             "hostname": self._config.hostname,
@@ -127,24 +144,31 @@ class SocketConnection:
             raise RobotConnectionError(self._handshake_error)
 
         assert self._connection_info is not None
-        self._sio.start_background_task(self._heartbeat_loop)
         return self._connection_info
 
     def disconnect(self) -> None:
-        if self._sio.connected:
-            self._sio.disconnect()
+        """Stop the connection for good: closes it if live, aborts an in-progress reconnection
+        attempt otherwise. Always a final disconnect - unblocks any thread in wait()."""
+        self._sio.shutdown()
         self._connection_info = None
+        self._stopped_event.set()
 
     def wait(self, poll_interval: float = 0.5) -> None:
-        """Block the calling thread until the connection is closed. Server-pushed events
-        (like `automation:start`) keep being handled on background threads while blocked.
+        """Block the calling thread until the connection is closed for good - i.e. until
+        disconnect() is called, or python-socketio gives up reconnecting (server sent an explicit
+        disconnect, or a finite `reconnection_attempts` was exhausted). Server-pushed events (like
+        `automation:start`) keep being handled on background threads while blocked.
 
-        Polls `is_connected` on a short interval instead of delegating to python-socketio's
-        own `wait()` (a bare `Thread.join()` with no timeout) - on Windows that join is a
-        single uninterruptible OS wait, so Ctrl+C never gets a chance to run until the socket
-        disconnects on its own.
+        A transient drop that the client is actively retrying (e.g. the API process restarting)
+        does NOT unblock this - python-socketio keeps reconnecting in the background for as long
+        as `reconnection` is enabled, and _on_connected restarts the heartbeat once it succeeds.
+
+        Polls `_stopped_event` on a short interval instead of delegating to python-socketio's own
+        `wait()` (a bare `Thread.join()` with no timeout) - on Windows that join is a single
+        uninterruptible OS wait, so Ctrl+C never gets a chance to run until the retry loop itself
+        ends.
         """
-        while self.is_connected:
+        while not self._stopped_event.is_set():
             self._sio.sleep(poll_interval)
 
     def _heartbeat_loop(self) -> None:
