@@ -124,6 +124,22 @@ client.credentials.expire("<credential-id>", "Login rejeitado pelo site do forne
 Veja `log_credential()` em [`examples/simulate_robot.py`](examples/simulate_robot.py) para um
 exemplo em contexto (revela uma credencial e loga o valor assim que conecta).
 
+### Buscando por `key` em vez de `id`
+
+`id` é o identificador interno da credencial - regenerado se o banco da plataforma for
+restaurado/migrado, quebrando qualquer robô que o tenha fixo no `.env`. `key` é um identificador
+estável, definido pelo admin na plataforma (ex.: `"financeiro/senha-sap"`) e independente de
+`id`/`name`/pasta - renomear a credencial ou movê-la de pasta nunca muda a `key`. Prefira `key`
+para qualquer credencial referenciada de fora da plataforma:
+
+```python
+credencial = client.credentials.reveal_by_key("financeiro/senha-sap")
+
+client.credentials.rotate_by_key("financeiro/senha-sap", "novo-valor")
+
+client.credentials.expire_by_key("financeiro/senha-sap", "Login rejeitado pelo site do fornecedor")
+```
+
 ## Arquitetura
 
 | Módulo | Responsabilidade |
@@ -132,7 +148,7 @@ exemplo em contexto (revela uma credencial e loga o valor assim que conecta).
 | `connection.py` | `SocketConnection` - handshake, heartbeat automático, reconexão, `call`/`emit` |
 | `execution.py` | `ExecutionManager` - ciclo `execution:start` / `execution:task` / `execution:finish` |
 | `queue.py` | `QueueConsumer` - `queue:next` / `queue:task-result`, iteração da fila |
-| `credentials.py` | `CredentialManager` - `reveal`/`rotate`/`block`/`expire`, via REST |
+| `credentials.py` | `CredentialManager` - `reveal`/`rotate`/`expire`, por `id` ou `key`, via REST |
 | `protocol.py` | Constantes do protocolo (namespace, nomes de eventos, rotas REST) |
 | `exceptions.py` | Hierarquia de exceções do SDK (`RobotSDKError` e subclasses) |
 | `utils.py` | Funções utilitárias reutilizáveis (detecção de plataforma, hostname, timestamps) |
