@@ -12,11 +12,12 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import socketio
 
-from .exceptions import AckTimeoutError, NotConnectedError, RobotConnectionError
+from .exceptions import AckTimeoutError, NotConnectedError, RobotConnectionError, ServerRejectedError
 from .loggers import logger
 from .models.config import RobotClientConfig
 from .models.enums import RobotInstanceStatus
@@ -24,6 +25,17 @@ from .models.robot import RobotConnection, RobotInfo
 from .protocol import NAMESPACE, ClientEvent, ServerEvent
 
 AutomationStartHandler = Callable[[], None]
+
+
+@dataclass
+class _PendingCall:
+    """One in-flight `call()`, tracked so `_on_error` can wake it up early with the server's
+    real message instead of letting it run out the clock into a useless `AckTimeoutError` -
+    see the `call`/`_on_error` docstrings."""
+
+    event: str
+    done: threading.Event
+    outcome: dict[str, Any] = field(default_factory=dict)
 
 
 class SocketConnection:
@@ -43,6 +55,8 @@ class SocketConnection:
         self._stopped_event = threading.Event()
         self._handshake_error: str | None = None
         self._automation_start_handlers: list[AutomationStartHandler] = []
+        self._pending_calls: list[_PendingCall] = []
+        self._pending_calls_lock = threading.Lock()
         self._register_handlers()
 
     def _register_handlers(self) -> None:
@@ -82,11 +96,26 @@ class SocketConnection:
             self._handshake_error = message
             logger.error("Servidor rejeitou a conexão: {}", message)
             self._connected_event.set()
-        else:
-            # Already connected - the platform is reporting a problem with the live session
-            # (e.g. this robot's api key was just regenerated). A disconnect from the server
-            # normally follows right after, logged separately by _on_disconnect.
-            logger.warning("Erro reportado pela plataforma: {}", message)
+            return
+
+        # Already connected - the platform is reporting a problem either with the live
+        # session (e.g. this robot's api key was just regenerated - a disconnect from the
+        # server normally follows right after, logged separately by _on_disconnect) OR with a
+        # specific event this robot just sent: NestJS's WS exception filter emits THIS event
+        # instead of ever resolving that event's own acknowledgement, so wake up every call()
+        # currently in flight with the real message - otherwise each one would just run out
+        # the clock into a generic AckTimeoutError, and this message would only ever be
+        # logged, never raised to the caller. There's no per-event correlation id to pick out
+        # only the ONE call this belongs to; waking all of them is still correct in the common
+        # case (one call in flight at a time) and, even when several overlap (e.g. the
+        # background heartbeat), a server-level error like this usually means none of them
+        # were going to succeed anyway.
+        logger.warning("Erro reportado pela plataforma: {}", message)
+        with self._pending_calls_lock:
+            pending_calls = list(self._pending_calls)
+        for pending in pending_calls:
+            pending.outcome["error"] = message
+            pending.done.set()
 
     def _on_exception(self, payload: Any) -> None:
         logger.error("Exceção recebida do servidor: {}", payload)
@@ -180,19 +209,46 @@ class SocketConnection:
                 response = self.call(ClientEvent.HEARTBEAT, {})
                 robot = RobotInfo.model_validate(response)
                 logger.debug("Heartbeat OK - status={}", robot.status.value)
-            except AckTimeoutError:
-                logger.warning("Heartbeat sem resposta da plataforma dentro do tempo limite")
+            except (AckTimeoutError, ServerRejectedError) as error:
+                logger.warning("Heartbeat falhou: {}", error)
 
     # -- low-level primitives, reused by ExecutionManager/QueueConsumer -----------------------
 
     def call(self, event: str, data: dict[str, Any], *, timeout: float | None = None) -> Any:
-        """Emit `event` and block for the server's acknowledgement (Socket.IO's `emitWithAck`)."""
+        """Emit `event` and block for the server's acknowledgement (Socket.IO's `emitWithAck`).
+
+        Reimplements what `socketio.Client.call` does internally (emit with a callback, wait
+        on an Event) rather than delegating to it directly, so `_on_error` has a handle to
+        wake this call up early - see its docstring for why a plain `socketio.Client.call`
+        would otherwise surface the gateway's own validation errors (e.g. "Nenhuma execução em
+        andamento...") as nothing more specific than a timeout.
+
+        Raises:
+            ServerRejectedError: the gateway rejected `event` and said why (its `error` event
+                arrived before the acknowledgement).
+            AckTimeoutError: neither an acknowledgement nor an error arrived in time.
+        """
         if not self.is_connected:
             raise NotConnectedError(f"Não é possível emitir '{event}': socket desconectado")
+
+        pending = _PendingCall(event=event, done=threading.Event())
+
+        def ack_callback(*args: Any) -> None:
+            pending.outcome["result"] = args[0] if len(args) == 1 else (args if args else None)
+            pending.done.set()
+
+        with self._pending_calls_lock:
+            self._pending_calls.append(pending)
         try:
-            return self._sio.call(event, data, namespace=NAMESPACE, timeout=timeout or self._config.ack_timeout)
-        except socketio.exceptions.TimeoutError as exc:
-            raise AckTimeoutError(f"Timeout aguardando resposta de '{event}'") from exc
+            self._sio.emit(event, data, namespace=NAMESPACE, callback=ack_callback)
+            if not pending.done.wait(timeout=timeout or self._config.ack_timeout):
+                raise AckTimeoutError(f"Timeout aguardando resposta de '{event}'")
+            if "error" in pending.outcome:
+                raise ServerRejectedError(f"'{event}' rejeitado pela plataforma: {pending.outcome['error']}")
+            return pending.outcome.get("result")
+        finally:
+            with self._pending_calls_lock:
+                self._pending_calls.remove(pending)
 
     def emit(self, event: str, data: dict[str, Any]) -> None:
         """Fire-and-forget emit, for events the gateway doesn't acknowledge."""
@@ -212,6 +268,18 @@ class SocketConnection:
     @property
     def is_connected(self) -> bool:
         return bool(self._sio.connected)
+
+    @property
+    def is_stopping(self) -> bool:
+        """True once the connection is closed for good (Ctrl+C, an explicit disconnect(), or
+        reconnection permanently giving up) - see `_stopped_event`/`wait`. A long-running
+        `automation:start` handler runs on its own background thread (python-socketio starts
+        it as a daemon, but that only kills it once the WHOLE process exits, not the instant
+        the connection drops) and is never otherwise told to stop: left unchecked, it keeps
+        doing real work - logins, downloads, external calls - with nowhere left to report the
+        result to. A handler with a loop over multiple units of work (documents, rows, files)
+        should poll this between iterations and return early once it's true."""
+        return self._stopped_event.is_set()
 
     @property
     def connection_info(self) -> RobotConnection | None:

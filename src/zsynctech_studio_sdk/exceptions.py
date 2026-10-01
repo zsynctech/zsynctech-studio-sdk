@@ -22,7 +22,18 @@ class NotConnectedError(RobotSDKError):
 
 
 class AckTimeoutError(RobotSDKError):
-    """The server did not acknowledge an event within the configured timeout."""
+    """The server did not acknowledge an event, AND reported no error either, within the
+    configured timeout. See `ServerRejectedError` for when the server DID respond, just not
+    with success."""
+
+
+class ServerRejectedError(RobotSDKError):
+    """The gateway's own exception filter rejected the call - its `error` event arrived
+    before the acknowledgement did, carrying the real reason (e.g. "Nenhuma execução em
+    andamento..."). Without this, a NestJS WS exception filter never resolves the original
+    call's acknowledgement on its own; the caller would otherwise just see a generic
+    `AckTimeoutError` after waiting out the full `ack_timeout`, with the real reason only
+    ever logged, never raised - see `SocketConnection._on_error`/`call`."""
 
 
 class NoActiveExecutionError(RobotSDKError):

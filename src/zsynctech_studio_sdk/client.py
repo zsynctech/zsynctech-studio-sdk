@@ -100,6 +100,15 @@ class RobotClient:
     def is_connected(self) -> bool:
         return self._connection.is_connected
 
+    @property
+    def is_stopping(self) -> bool:
+        """True once the connection is closed for good (Ctrl+C, `disconnect()`, or
+        reconnection permanently giving up) - see `SocketConnection.is_stopping`. An
+        `automation:start` handler with a loop over multiple units of work should poll this
+        between iterations and return early once it's true, instead of running to completion
+        with no connection left to report the result to."""
+        return self._connection.is_stopping
+
     def __enter__(self) -> RobotClient:
         self.connect()
         return self

@@ -33,6 +33,7 @@ from .exceptions import (
     NotConnectedError,
     RobotConnectionError,
     RobotSDKError,
+    ServerRejectedError,
 )
 from .execution import ExecutionManager
 from .models import (
@@ -67,6 +68,7 @@ __all__ = [
     "RobotConnectionError",
     "NotConnectedError",
     "AckTimeoutError",
+    "ServerRejectedError",
     "NoActiveExecutionError",
     "CredentialRequestError",
     "ClaimedTask",
