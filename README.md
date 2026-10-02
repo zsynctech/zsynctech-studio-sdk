@@ -1,4 +1,4 @@
-# zsynctech-studio-sdk
+# zsynctech-sdk
 
 SDK Python oficial para conectar robôs de RPA à plataforma **zsynctech-studio**: handshake,
 heartbeat, ciclo de execução, consumo de fila e acesso ao cofre de credenciais, tudo via

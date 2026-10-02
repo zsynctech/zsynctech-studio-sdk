@@ -1,6 +1,6 @@
 [project]
-name = "zsynctech-studio-sdk"
-version = "1.4.8"
+name = "zsynctech-sdk"
+version = "1.4.9"
 description = "SDK Python para conectar robôs (RPA) à plataforma zsynctech-studio via Socket.IO"
 readme = "README.md"
 authors = [
@@ -15,11 +15,21 @@ dependencies = [
 ]
 
 [project.scripts]
-zsynctech-studio-sdk = "zsynctech_studio_sdk:main"
+zsynctech-sdk = "zsynctech_studio_sdk:main"
 
 [build-system]
 requires = ["uv_build>=0.12.8,<0.13.0"]
 build-backend = "uv_build"
+
+# The importable module stays zsynctech_studio_sdk (src/zsynctech_studio_sdk/) even though the
+# distribution was renamed to zsynctech-sdk on PyPI (the old "zsynctech-studio-sdk" name is
+# stuck on a PyPI account we lost access to) - uv_build otherwise infers the module name from
+# the project name (hyphens to underscores), which would no longer match this package's actual
+# directory. Keeping the import path the same means every robot that already does
+# `from zsynctech_studio_sdk import ...` only needs its pyproject.toml dependency line updated,
+# not a single import statement.
+[tool.uv.build-backend]
+module-name = "zsynctech_studio_sdk"
 
 [dependency-groups]
 dev = [
