@@ -25,7 +25,7 @@ class TaskItem(SdkBaseModel):
     """One outcome reported through `execution:task` (direct, non-queue reporting).
 
     Unlike `ClaimedTask`, this is an outbound model built by the robot script itself - see
-    `ExecutionManager.report_tasks`.
+    `Execution.report` / `Execution.report_many`.
     """
 
     external_id: str | None = None

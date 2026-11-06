@@ -38,7 +38,30 @@ class ServerRejectedError(RobotSDKError):
 
 class NoActiveExecutionError(RobotSDKError):
     """An operation that requires an open execution (queue consumption, task reporting) was
-    called without one having been started via `ExecutionManager.start()`."""
+    called without one - see `@robot.execution` / `robot.start_execution()` - or on an execution
+    that has already finished."""
+
+
+class TaskAlreadyReportedError(RobotSDKError):
+    """A task's outcome was reported a second time. Each task has exactly one outcome."""
+
+
+class TaskWarning(Exception):  # noqa: N818 - raised by robot code to mean "done, with a remark", not a failure
+    """Raise from a function decorated with `@robot.task` to report the task as WARNING: it got
+    done, with a remark. `message` is the remark; `result`, whatever was produced anyway.
+
+        @robot.task
+        def process(task):
+            if partial:
+                raise TaskWarning("Dado parcial retornado", result={"protocolo": numero})
+
+    Not a `RobotSDKError`: the SDK never raises it, robot code does.
+    """
+
+    def __init__(self, message: str, *, result: dict[str, object] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.result = result
 
 
 class CredentialRequestError(RobotSDKError):

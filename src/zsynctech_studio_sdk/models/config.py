@@ -1,4 +1,4 @@
-"""Configuration model for `RobotClient`."""
+"""Configuration model for `Robot`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .enums import Platform
 
 
 class RobotClientConfig(SdkBaseModel):
-    """Everything `RobotClient` needs to open and maintain a `/robot` connection.
+    """Everything `Robot` needs to open and maintain a `/robot` connection.
 
     Only `api_key` is required - every other field has a sensible default (own hostname,
     the detected OS platform, a 15s heartbeat).

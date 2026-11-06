@@ -1,118 +1,128 @@
-"""Queue consumption: `queue:next` / `queue:task-result`.
+"""The robot's queue on the platform: tasks handed out one at a time, each reporting its own
+outcome.
 
-Requires an execution already open through `ExecutionManager` - same rule the gateway's own
-`queue:next` handler enforces (it reads the execution id off the socket).
+    for task in robot.queue.tasks():
+        task.success(result=process(task.payload))
+
+Needs an open execution - the gateway ties every claimed task to the execution working on it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
-from contextlib import contextmanager
-from typing import Any
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
-from .connection import SocketConnection
-from .exceptions import NoActiveExecutionError
-from .execution import ExecutionManager
+from .exceptions import NoActiveExecutionError, TaskAlreadyReportedError
 from .loggers import logger
 from .models.enums import TaskStatus
 from .models.task import ClaimedTask
 from .protocol import ClientEvent
 
-
-class QueueConsumer:
-    """Claims tasks from a robot's queue and reports their outcomes back."""
-
-    def __init__(self, connection: SocketConnection, execution: ExecutionManager) -> None:
-        self._connection = connection
-        self._execution = execution
-
-    def claim_next(self, queue_id: str | None = None) -> ClaimedTask | None:
-        """Claim the next pending task, or `None` if the queue is empty.
-
-        `queue_id` picks a specific queue; omitted, the platform uses the robot's oldest one.
-        """
-        if not self._execution.is_running:
-            raise NoActiveExecutionError("Nenhuma execução em andamento - inicie uma execução antes de consumir a fila")
-
-        payload = {"queueId": queue_id} if queue_id else {}
-        response = self._connection.call(ClientEvent.QUEUE_NEXT, payload)
-        if not response or not response.get("taskId"):
-            return None
-        return ClaimedTask.model_validate(response)
-
-    def report_result(
-        self,
-        task: ClaimedTask | str,
-        status: TaskStatus,
-        *,
-        message: str | None = None,
-        result: dict[str, Any] | None = None,
-    ) -> None:
-        """Report the outcome of a task previously handed out by `claim_next`/`consume`."""
-        task_id = task.task_id if isinstance(task, ClaimedTask) else task
-        payload: dict[str, Any] = {"taskId": task_id, "status": status.value}
-        if message is not None:
-            payload["message"] = message
-        if result is not None:
-            payload["result"] = result
-        self._connection.call(ClientEvent.QUEUE_TASK_RESULT, payload)
-        logger.debug("Task {} reportada como {}", task_id, status.value)
-
-    def consume(self, queue_id: str | None = None) -> Iterator[ClaimedTask]:
-        """Yield each pending task until the queue is empty.
-
-        for task in client.queue.consume():
-            ...
-        """
-        while True:
-            task = self.claim_next(queue_id)
-            if task is None:
-                logger.info("Fila esvaziada")
-                return
-            logger.info("Task {} recebida (tentativa {})", task.task_id, task.attempts)
-            yield task
-
-    @contextmanager
-    def processing(self, task: ClaimedTask) -> Generator[TaskOutcome]:
-        """Yield a `TaskOutcome` to report SUCCESS/WARNING/FAILURE for `task`.
-
-        If the body raises and nothing was explicitly reported yet, reports FAILURE with the
-        exception message before re-raising. If it exits cleanly without reporting, reports
-        SUCCESS - so the common case only needs the body to do its work:
-
-            for task in client.queue.consume():
-                with client.queue.processing(task):
-                    do_the_work(task.payload)
-        """
-        outcome = TaskOutcome(self, task)
-        try:
-            yield outcome
-        except Exception as exc:
-            if not outcome.reported:
-                outcome.failure(message=str(exc))
-            raise
-        else:
-            if not outcome.reported:
-                outcome.success()
+if TYPE_CHECKING:
+    from .robot import Robot
 
 
-class TaskOutcome:
-    """Reports at most one outcome for the `ClaimedTask` it was created for."""
+class Task:
+    """One task handed out by the queue. Reports exactly one outcome: `success`, `warning` or
+    `failure`."""
 
-    def __init__(self, consumer: QueueConsumer, task: ClaimedTask) -> None:
-        self._consumer = consumer
-        self._task = task
-        self.reported = False
+    def __init__(self, robot: Robot, claimed: ClaimedTask) -> None:
+        self._robot = robot
+        self.id = claimed.task_id
+        self.external_id = claimed.external_id
+        self.attempts = claimed.attempts
+        self.payload: dict[str, Any] = claimed.payload or {}
+        self.status: TaskStatus | None = None
+
+    @property
+    def reported(self) -> bool:
+        return self.status is not None
 
     def success(self, *, message: str | None = None, result: dict[str, Any] | None = None) -> None:
         self._report(TaskStatus.SUCCESS, message, result)
 
     def warning(self, *, message: str | None = None, result: dict[str, Any] | None = None) -> None:
+        """Done, with a remark - e.g. only part of the data came back."""
         self._report(TaskStatus.WARNING, message, result)
 
     def failure(self, *, message: str | None = None, result: dict[str, Any] | None = None) -> None:
         self._report(TaskStatus.FAILURE, message, result)
 
     def _report(self, status: TaskStatus, message: str | None, result: dict[str, Any] | None) -> None:
-        self._consumer.report_result(self._task, status, message=message, result=result)
-        self.reported = True
+        if self.status is not None:
+            raise TaskAlreadyReportedError(f"A task {self.id} já foi reportada como {self.status.value}")
+        payload: dict[str, Any] = {"taskId": self.id, "status": status.value}
+        if message is not None:
+            payload["message"] = message
+        if result is not None:
+            payload["result"] = result
+        self._robot._transport.call(ClientEvent.QUEUE_TASK_RESULT, payload)
+        self.status = status
+        logger.debug("Task {} reportada como {}", self.id, status.value)
+
+    def __repr__(self) -> str:
+        return f"Task(id={self.id!r}, external_id={self.external_id!r}, attempts={self.attempts})"
+
+
+class Queue:
+    """Hands out the robot's queued tasks."""
+
+    def __init__(self, robot: Robot) -> None:
+        self._robot = robot
+        # Why the last `next()` came back empty - see `_stop_reason`.
+        self.stop_reason: str | None = None
+
+    def next(self, queue_id: str | None = None) -> Task | None:
+        """The next pending task, or `None` once the queue is empty. `queue_id` picks a specific
+        queue; omitted, the platform uses the robot's own."""
+        if self._robot.current_execution is None:
+            raise NoActiveExecutionError(
+                "Nenhuma execução em andamento - abra uma com @robot.execution ou robot.start_execution() "
+                "antes de consumir a fila"
+            )
+        response = self._robot._transport.call(ClientEvent.QUEUE_NEXT, {"queueId": queue_id} if queue_id else {})
+        if not response or not response.get("taskId"):
+            # No task can mean the queue is empty, paused, or the robot's operation window has
+            # closed - in the last two, what's left waits there for later.
+            self.stop_reason = _stop_reason(response)
+            return None
+        task = Task(self._robot, ClaimedTask.model_validate(response))
+        logger.info("Task {} recebida (tentativa {})", task.id, task.attempts)
+        return task
+
+    def tasks(self, queue_id: str | None = None) -> Iterator[Task]:
+        """Each pending task, until the queue is empty or the robot is stopping.
+
+        A task left without an outcome is not reported for you - it goes back to the queue once
+        its lease runs out, and a warning says so.
+        """
+        task: Task | None = None
+        try:
+            while not self._robot.stopping:
+                task = self.next(queue_id)
+                if task is None:
+                    logger.info(self.stop_reason or "Fila esvaziada")
+                    return
+                yield task
+                _warn_if_unreported(task)
+                task = None
+        finally:
+            # Left the loop early (break, an exception) with a task still in hand.
+            if task is not None:
+                _warn_if_unreported(task)
+
+
+def _stop_reason(response: dict[str, Any] | None) -> str | None:
+    if response and response.get("paused"):
+        return "Fila pausada na plataforma - as tasks restantes ficam para depois"
+    if response and response.get("outsideWindow"):
+        return "Robô fora da janela de operação - as tasks restantes ficam para a próxima janela"
+    return None
+
+
+def _warn_if_unreported(task: Task) -> None:
+    if not task.reported:
+        logger.warning(
+            "A task {} ficou sem resultado (success/warning/failure) e volta para a fila quando o lease vencer",
+            task.id,
+        )

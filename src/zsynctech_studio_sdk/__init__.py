@@ -1,30 +1,26 @@
-"""SDK Python para conectar robôs (RPA) à plataforma zsynctech-studio via `/robot` (Socket.IO).
+"""SDK Python para conectar robôs (RPA) à plataforma zsynctech-studio.
 
 Uso rápido:
 
-    from zsynctech_studio_sdk import RobotClient, TaskStatus
+    from zsynctech_studio_sdk import Robot
 
-    client = RobotClient.from_api_key("<sua-api-key>", backend_url="http://localhost:5000")
+    robot = Robot.from_env()  # ZSYNC_API_KEY e ZSYNC_BACKEND_URL
 
-    @client.on_automation_start
-    def handle_automation() -> None:
-        with client.execution.run(observation="Minha automação"):
-            for task in client.queue.consume():
-                with client.queue.processing(task) as outcome:
-                    outcome.success(result={"ok": True})
+    @robot.task
+    def processar(task):
+        return consultar_portal(task.payload)   # retorno -> SUCCESS, exceção -> FAILURE
 
-    with client:
-        client.listen()
+    @robot.execution(observation="Boletos do dia")
+    def main():
+        for task in robot.queue.tasks():
+            processar(task)
 
-O cofre de credenciais é acessado à parte, via REST (não precisa de conexão aberta):
+    main()
 
-    credencial = client.credentials.reveal("<credential-id>")
-    print(credencial.value)
-
-Veja `examples/simulate_robot.py` para um exemplo completo.
+Não há conexão para gerenciar: ela abre na primeira chamada que precisa e fecha quando o
+processo termina. Veja `examples/` para exemplos completos.
 """
 
-from .client import RobotClient
 from .credentials import CredentialManager
 from .exceptions import (
     AckTimeoutError,
@@ -34,16 +30,17 @@ from .exceptions import (
     RobotConnectionError,
     RobotSDKError,
     ServerRejectedError,
+    TaskAlreadyReportedError,
+    TaskWarning,
 )
-from .execution import ExecutionManager
+from .execution import Execution, ExecutionScope
+from .loggers import configure_logging, get_logger
 from .models import (
-    ClaimedTask,
     CredentialInfo,
     CredentialStatus,
     CredentialType,
     ExecutionFinishResult,
     ExecutionFinishStatus,
-    ExecutionStartResult,
     Platform,
     RevealedCredential,
     RobotAvailability,
@@ -55,14 +52,19 @@ from .models import (
     TaskItem,
     TaskStatus,
 )
-from .queue import QueueConsumer, TaskOutcome
+from .queue import Queue, Task
+from .robot import Robot
 
 __all__ = [
-    "RobotClient",
+    "Robot",
+    "get_logger",
+    "configure_logging",
     "RobotClientConfig",
-    "ExecutionManager",
-    "QueueConsumer",
-    "TaskOutcome",
+    "Execution",
+    "ExecutionScope",
+    "Queue",
+    "Task",
+    "TaskItem",
     "CredentialManager",
     "RobotSDKError",
     "RobotConnectionError",
@@ -70,12 +72,11 @@ __all__ = [
     "AckTimeoutError",
     "ServerRejectedError",
     "NoActiveExecutionError",
+    "TaskAlreadyReportedError",
+    "TaskWarning",
     "CredentialRequestError",
-    "ClaimedTask",
-    "TaskItem",
     "RobotInfo",
     "RobotConnection",
-    "ExecutionStartResult",
     "ExecutionFinishResult",
     "CredentialInfo",
     "RevealedCredential",
@@ -92,4 +93,4 @@ __all__ = [
 
 
 def main() -> None:
-    print("zsynctech-studio-sdk - use RobotClient para conectar um robô à plataforma zsynctech-studio.")
+    print("zsynctech-studio-sdk - use Robot para conectar um robô à plataforma zsynctech-studio.")

@@ -9,25 +9,31 @@ to a file, change the level, or emit structured JSON.
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger as _logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 _LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
     "<level>{level: <8}</level> | "
-    "<cyan>zsynctech-studio-sdk</cyan> - <level>{message}</level>"
+    "<cyan>{extra[source]}</cyan> - <level>{message}</level>"
 )
+
+_SDK_SOURCE = "zsynctech-studio-sdk"
 
 
 def configure_logging(*, level: str = "INFO", sink: Any = None, serialize: bool = False) -> None:
     """(Re)configure the SDK's loguru sink.
 
-    Called automatically by `RobotClient` on construction using `RobotClientConfig.log_level`.
-    Call it again yourself - before constructing `RobotClient` - to log to a file, change the
+    Called automatically by `Robot` on construction using `RobotClientConfig.log_level`.
+    Call it again yourself - before constructing `Robot` - to log to a file, change the
     level, or switch to structured (`serialize=True`) output instead.
     """
     _logger.remove()
+    _logger.configure(extra={"source": _SDK_SOURCE})
     _logger.add(
         sink or sys.stderr,
         level=level.upper(),
@@ -39,4 +45,15 @@ def configure_logging(*, level: str = "INFO", sink: Any = None, serialize: bool 
     )
 
 
+def get_logger(name: str) -> Logger:
+    """A logger for the robot's own script, in the same format, colors and level as the SDK's
+    lines - only the name between `|` and `-` changes:
+
+        log = get_logger("boletos")
+        log.success("Boleto {} baixado", numero)
+    """
+    return _logger.bind(source=name)
+
+
+_logger.configure(extra={"source": _SDK_SOURCE})
 logger = _logger

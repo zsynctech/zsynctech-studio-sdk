@@ -2,9 +2,9 @@
 
 `SocketConnection` owns the handshake, reconnection, the periodic app-level heartbeat, and
 the raw `call`/`emit` primitives. It knows nothing about executions or queues - see
-`execution.py` and `queue.py` for the layers built on top of it. Keeping this
-separation means `ExecutionManager`/`QueueConsumer` depend only on this class's small public
-surface (SRP/DIP), not on `python-socketio` directly.
+`robot.py`, `execution.py` and `queue.py` for the layers built on top of it. Keeping this
+separation means those layers depend only on the small `Transport` surface below
+(SRP/DIP), not on `python-socketio` directly.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import socketio
 
@@ -25,6 +25,32 @@ from .models.robot import RobotConnection, RobotInfo
 from .protocol import NAMESPACE, ClientEvent, ServerEvent
 
 AutomationStartHandler = Callable[[], None]
+
+
+class Transport(Protocol):
+    """What `Robot` needs from the link to the platform - all it ever talks to. `SocketConnection`
+    is the one in use; nothing above this line knows it's a socket, so the link underneath can
+    change (e.g. to plain HTTP) without touching a robot's code."""
+
+    @property
+    def is_connected(self) -> bool: ...
+
+    @property
+    def is_stopping(self) -> bool: ...
+
+    def connect(self) -> RobotConnection: ...
+
+    def disconnect(self) -> None: ...
+
+    def wait(self) -> None: ...
+
+    def call(self, event: str, data: dict[str, Any], *, timeout: float | None = None) -> Any: ...
+
+    def emit(self, event: str, data: dict[str, Any]) -> None: ...
+
+    def set_status(self, status: RobotInstanceStatus) -> RobotInfo: ...
+
+    def on_automation_start(self, handler: AutomationStartHandler) -> None: ...
 
 
 @dataclass
@@ -54,6 +80,9 @@ class SocketConnection:
         self._connected_event = threading.Event()
         self._stopped_event = threading.Event()
         self._handshake_error: str | None = None
+        # Set by disconnect(): the robot itself is closing - every script does on exit - so the
+        # disconnect that follows is the normal ending, not a drop to warn about.
+        self._closing = False
         self._automation_start_handlers: list[AutomationStartHandler] = []
         self._pending_calls: list[_PendingCall] = []
         self._pending_calls_lock = threading.Lock()
@@ -132,14 +161,19 @@ class SocketConnection:
             logger.exception("Handler de automation:start levantou uma exceção não tratada")
 
     def _on_disconnect(self, *_args: Any) -> None:
-        logger.warning("Desconectado da plataforma - tentando reconectar automaticamente...")
         self._connection_info = None
+        if self._closing:
+            return
+        logger.warning("Desconectado da plataforma - tentando reconectar automaticamente...")
 
     def _on_connect_error(self, data: Any = None) -> None:
         logger.error("Falha ao conectar: {}", data)
 
     def _on_disconnect_final(self, *_args: Any) -> None:
-        logger.error("Conexão encerrada definitivamente (sem novas tentativas de reconexão)")
+        if self._closing:
+            logger.info("Conexão com a plataforma encerrada")
+        else:
+            logger.error("Conexão encerrada definitivamente (sem novas tentativas de reconexão)")
         self._stopped_event.set()
 
     # -- lifecycle ----------------------------------------------------------------------------
@@ -149,6 +183,7 @@ class SocketConnection:
         self._handshake_error = None
         self._connected_event.clear()
         self._stopped_event.clear()
+        self._closing = False
         auth = {
             "apiKey": self._config.api_key,
             "hostname": self._config.hostname,
@@ -170,6 +205,8 @@ class SocketConnection:
             self._sio.disconnect()
             raise RobotConnectionError("Servidor não confirmou a conexão a tempo (evento 'connected' ausente)")
         if self._handshake_error:
+            # Closed before raising: left open, a later connect() would only say "Already connected".
+            self._sio.disconnect()
             raise RobotConnectionError(self._handshake_error)
 
         assert self._connection_info is not None
@@ -178,6 +215,7 @@ class SocketConnection:
     def disconnect(self) -> None:
         """Stop the connection for good: closes it if live, aborts an in-progress reconnection
         attempt otherwise. Always a final disconnect - unblocks any thread in wait()."""
+        self._closing = True
         self._sio.shutdown()
         self._connection_info = None
         self._stopped_event.set()
@@ -212,7 +250,7 @@ class SocketConnection:
             except (AckTimeoutError, ServerRejectedError) as error:
                 logger.warning("Heartbeat falhou: {}", error)
 
-    # -- low-level primitives, reused by ExecutionManager/QueueConsumer -----------------------
+    # -- low-level primitives, reused by Execution/Queue -----------------------
 
     def call(self, event: str, data: dict[str, Any], *, timeout: float | None = None) -> Any:
         """Emit `event` and block for the server's acknowledgement (Socket.IO's `emitWithAck`).

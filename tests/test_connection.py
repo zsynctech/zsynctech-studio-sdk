@@ -187,3 +187,52 @@ def test_on_connected_restarts_heartbeat_and_unblocks_connected_event(monkeypatc
 
     assert started_tasks == [connection._heartbeat_loop, connection._heartbeat_loop]
     assert connection._connected_event.is_set()
+
+
+def test_a_close_asked_for_is_not_logged_as_a_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every script now closes the connection by itself on exit: that is the normal ending, not a
+    dropped connection - no warning about reconnecting, no error about giving up."""
+    from zsynctech_studio_sdk.loggers import logger
+
+    connection = SocketConnection(CONFIG)
+    monkeypatch.setattr(connection._sio, "shutdown", lambda: None)
+    problems: list[str] = []
+    monkeypatch.setattr(logger, "warning", lambda message, *args: problems.append(message))
+    monkeypatch.setattr(logger, "error", lambda message, *args: problems.append(message))
+
+    connection.disconnect()
+    connection._on_disconnect()
+    connection._on_disconnect_final()
+
+    assert problems == []
+
+
+def test_a_drop_nobody_asked_for_is_still_logged_as_a_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    from zsynctech_studio_sdk.loggers import logger
+
+    connection = SocketConnection(CONFIG)
+    problems: list[str] = []
+    monkeypatch.setattr(logger, "warning", lambda message, *args: problems.append(message))
+    monkeypatch.setattr(logger, "error", lambda message, *args: problems.append(message))
+
+    connection._on_disconnect()
+    connection._on_disconnect_final()
+
+    assert len(problems) == 2
+
+
+def test_a_refused_handshake_does_not_leave_the_socket_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the api key refused, the socket must be closed before raising - left open, every
+    later connect() fails with "Already connected" instead of the real reason."""
+    from zsynctech_studio_sdk.exceptions import RobotConnectionError
+
+    connection = SocketConnection(CONFIG)
+    disconnects: list[bool] = []
+    monkeypatch.setattr(
+        connection._sio, "connect", lambda *args, **kwargs: connection._on_error({"message": "API key inválida"})
+    )
+    monkeypatch.setattr(connection._sio, "disconnect", lambda: disconnects.append(True))
+
+    with pytest.raises(RobotConnectionError, match="API key inválida"):
+        connection.connect()
+    assert disconnects == [True]
