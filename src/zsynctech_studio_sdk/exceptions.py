@@ -3,6 +3,11 @@ so a caller only ever needs `except RobotSDKError` to catch everything the SDK c
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models.enums import CredentialStatus
+
 
 class RobotSDKError(Exception):
     """Base class for every exception raised by zsynctech-studio-sdk."""
@@ -71,3 +76,20 @@ class CredentialRequestError(RobotSDKError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class CredentialNotActiveError(CredentialRequestError):
+    """The platform revealed a credential that is not ACTIVE (expired, for one): its value is not
+    handed to the robot. Trying a login with it again is how a site ends up blocking the account -
+    an admin has to update it in the vault first.
+
+    A `CredentialRequestError`, so code that already handles that one keeps working.
+    """
+
+    def __init__(self, credential: str, status: CredentialStatus) -> None:
+        super().__init__(
+            f"A credencial '{credential}' está {status.value} na plataforma - atualize-a no cofre antes de o robô "
+            "usá-la (nenhuma tentativa de login com ela)"
+        )
+        self.credential = credential
+        self.status = status

@@ -168,6 +168,21 @@ robot.credentials.rotate_by_key("financeiro/senha-sap", "novo-valor")
 robot.credentials.expire_by_key("financeiro/senha-sap", "Login rejeitado pelo site do fornecedor")
 ```
 
+Só uma credencial **ativa** é entregue ao robô: se a plataforma disser que ela está expirada,
+`reveal`/`reveal_by_key` levantam `CredentialNotActiveError` (um `CredentialRequestError`) em vez
+de devolver o valor. Assim o robô nunca tenta logar com uma senha já recusada - é isso que faz um
+site bloquear a conta. Trate o erro encerrando a execução até um admin atualizar a credencial:
+
+```python
+from zsynctech_studio_sdk import CredentialNotActiveError
+
+try:
+    credencial = robot.credentials.reveal_by_key("financeiro/senha-sap")
+except CredentialNotActiveError as erro:
+    execution.fail(observation=str(erro))   # nenhuma tentativa de login
+    return
+```
+
 Prefira `key` a `id`: `id` é regenerado se o banco da plataforma for restaurado/migrado; `key`
 é definida pelo admin e não muda. As versões por `id` também existem (`reveal`, `rotate`,
 `expire`).

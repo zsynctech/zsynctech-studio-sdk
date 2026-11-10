@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 import requests
 
-from .exceptions import CredentialRequestError
+from .exceptions import CredentialNotActiveError, CredentialRequestError
 from .loggers import logger
 from .models.config import RobotClientConfig
 from .models.credential import CredentialInfo, RevealedCredential
@@ -32,9 +32,14 @@ class CredentialManager:
         self._session = requests.Session()
 
     def reveal(self, credential_id: str) -> RevealedCredential:
-        """Decrypt and return the current value of an active credential."""
+        """Decrypt and return the current value of an active credential.
+
+        Raises:
+            CredentialNotActiveError: the platform says it is not ACTIVE (expired, for one) - its
+                value is not returned, so no login is ever tried with it.
+        """
         response = self._post(f"/{credential_id}/reveal", {})
-        return RevealedCredential.model_validate(response)
+        return _active(RevealedCredential.model_validate(response), credential_id)
 
     def reveal_by_key(self, key: str) -> RevealedCredential:
         """Same as `reveal()`, looked up by the credential's `key` instead of its `id`.
@@ -45,7 +50,7 @@ class CredentialManager:
         platform's CredentialEntity.
         """
         response = self._post("/by-key/reveal", {"key": key})
-        return RevealedCredential.model_validate(response)
+        return _active(RevealedCredential.model_validate(response), key)
 
     def rotate(self, credential_id: str, value: Any, *, expires_at: datetime | str | None = None) -> CredentialInfo:
         """Create a new version of a credential with `value`.
@@ -106,6 +111,16 @@ class CredentialManager:
         logger.debug("{} {} -> {}", method, url, response.status_code)
         result: dict[str, Any] = data.get("payload", data)
         return result
+
+
+def _active(revealed: RevealedCredential, credential: str) -> RevealedCredential:
+    # `None`: a platform older than the status on reveals - nothing to go by, as before.
+    if revealed.status is not None and revealed.status is not CredentialStatus.ACTIVE:
+        logger.warning(
+            "Credencial '{}' está {} na plataforma - valor não entregue ao robô", credential, revealed.status.value
+        )
+        raise CredentialNotActiveError(credential, revealed.status)
+    return revealed
 
 
 def _extract_error_message(response: requests.Response) -> str:

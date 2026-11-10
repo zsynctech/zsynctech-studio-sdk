@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from zsynctech_studio_sdk.credentials import CredentialManager
-from zsynctech_studio_sdk.exceptions import CredentialRequestError
+from zsynctech_studio_sdk.exceptions import CredentialNotActiveError, CredentialRequestError
 from zsynctech_studio_sdk.models import CredentialInfo, CredentialStatus, RevealedCredential, RobotClientConfig
 
 CONFIG = RobotClientConfig(api_key="abc123", backend_url="http://localhost:5000")
@@ -108,3 +108,57 @@ def test_non_ok_response_raises_credential_request_error_with_status_code() -> N
 
     assert exc_info.value.status_code == 401
     assert "API key inválida" in str(exc_info.value)
+
+
+def _reveal_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "credentialId": "cred-1",
+        "versionNumber": 2,
+        "type": "KEY_VALUE",
+        "value": {"username": "robo", "password": "s3cr3t"},
+        "status": "ACTIVE",
+        "revealedAt": "2026-01-01T00:00:00+00:00",
+    }
+    payload.update(overrides)
+    return {"payload": payload}
+
+
+def test_reveal_says_the_credential_is_active() -> None:
+    manager = CredentialManager(CONFIG)
+
+    with patch.object(manager._session, "request", return_value=_mock_response(_reveal_payload())):
+        result = manager.reveal_by_key("financeiro/alpheratz")
+
+    assert result.status is CredentialStatus.ACTIVE
+    assert result.value == {"username": "robo", "password": "s3cr3t"}
+
+
+@pytest.mark.parametrize("call", ["reveal", "reveal_by_key"])
+def test_a_credential_that_is_not_active_is_refused_before_the_robot_gets_its_value(call: str) -> None:
+    """An expired credential must not reach a login: trying it again is how a site blocks the account."""
+    manager = CredentialManager(CONFIG)
+
+    with (
+        patch.object(manager._session, "request", return_value=_mock_response(_reveal_payload(status="EXPIRED"))),
+        pytest.raises(CredentialNotActiveError) as raised,
+    ):
+        getattr(manager, call)("financeiro/alpheratz")
+
+    error = raised.value
+    assert isinstance(error, CredentialRequestError)  # whoever already catches this keeps working
+    assert error.status is CredentialStatus.EXPIRED
+    assert "financeiro/alpheratz" in str(error)
+    assert "EXPIRED" in str(error)
+    assert "s3cr3t" not in str(error)
+
+
+def test_a_platform_that_does_not_say_the_status_still_reveals() -> None:
+    manager = CredentialManager(CONFIG)
+    body = _reveal_payload()
+    del body["payload"]["status"]
+
+    with patch.object(manager._session, "request", return_value=_mock_response(body)):
+        result = manager.reveal("cred-1")
+
+    assert result.status is None
+    assert result.value["password"] == "s3cr3t"

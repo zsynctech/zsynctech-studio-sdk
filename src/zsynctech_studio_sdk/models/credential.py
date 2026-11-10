@@ -37,11 +37,14 @@ class RevealedCredential(SdkBaseModel):
     """The decrypted value of a credential, as returned by `CredentialManager.reveal()`.
 
     `value`'s shape depends on `type`: a `str` for TEXT, a `dict[str, str]` for KEY_VALUE, or
-    any JSON-compatible value for JSON.
+    any JSON-compatible value for JSON. `status` is the credential's at the time of the reveal -
+    always ACTIVE in what `reveal()` returns (see `CredentialNotActiveError`); `None` from a
+    platform that doesn't say it.
     """
 
     credential_id: str
     version_number: int
     type: CredentialType
     value: Any
+    status: CredentialStatus | None = None
     revealed_at: datetime

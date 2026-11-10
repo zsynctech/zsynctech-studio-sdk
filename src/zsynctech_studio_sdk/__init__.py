@@ -24,6 +24,7 @@ processo termina. Veja `examples/` para exemplos completos.
 from .credentials import CredentialManager
 from .exceptions import (
     AckTimeoutError,
+    CredentialNotActiveError,
     CredentialRequestError,
     NoActiveExecutionError,
     NotConnectedError,
@@ -75,6 +76,7 @@ __all__ = [
     "TaskAlreadyReportedError",
     "TaskWarning",
     "CredentialRequestError",
+    "CredentialNotActiveError",
     "RobotInfo",
     "RobotConnection",
     "ExecutionFinishResult",
